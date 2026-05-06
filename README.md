@@ -2,7 +2,7 @@
 
 An Android app for performing bandlock and managing EFS NV items on Qualcomm-based Xiaomi devices without root, using [Shizuku](https://github.com/RikkaApps/Shizuku) for privileged access.
 
-Tested on MIUI/HyperOS devices running Android 13+.
+It wraps around the mtb binary located in `/vendor/bin` directory. If this binary does not exist, the app will NOT work! Tested on MIUI/HyperOS devices running Android 13+.
 
 ## What it does
 
