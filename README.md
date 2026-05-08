@@ -2,7 +2,18 @@
 
 An Android app for managing EFS NV items on Xiaomi Qualcomm devices. Uses root access (preferred) or [Shizuku](https://github.com/RikkaApps/Shizuku) as a fallback for privileged access to `/vendor/bin/mtb`.
 
-Tested on MIUI/HyperOS devices running Android 13+.
+It wraps around the mtb binary located in `/vendor/bin` directory. If this binary does not exist, the app will NOT work! Tested on MIUI/HyperOS devices running Android 13+.
+
+## Screenshots
+
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/ec4a6e0d-8985-4ac5-8d25-d118e9c8e6ea" width="48%" alt="Screenshot 1"/>
+  <img src="https://github.com/user-attachments/assets/39d40b37-4512-4477-96ed-58e8ce59b76a" width="48%" alt="Screenshot 2"/>
+</p>
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/cc6b48e9-5736-4b82-b60e-c8afb652b242" width="48%" alt="Screenshot 3"/>
+  <img src="https://github.com/user-attachments/assets/febfcfcb-c5b0-41c0-ab43-6aecd5c978e5" width="48%" alt="Screenshot 4"/>
+</p>
 
 ## What it does
 
