@@ -11,8 +11,8 @@ android {
         applicationId = "dev.henrik.mtbtool"
         minSdk = 33
         targetSdk = 37
-        versionCode = 8
-        versionName = "1.2.0"
+        versionCode = 10
+        versionName = "1.4.0"
         ndk {
             abiFilters += listOf("arm64-v8a")
         }
@@ -87,6 +87,11 @@ dependencies {
     // Shizuku (local composite build)
     implementation("dev.rikka.shizuku:api")
     implementation("dev.rikka.shizuku:provider")
+
+    // libsu — root shell and root service
+    val libsuVersion = "6.0.0"
+    implementation("com.github.topjohnwu.libsu:core:$libsuVersion")
+    implementation("com.github.topjohnwu.libsu:service:$libsuVersion")
 
     // Backdrop / Liquid-glass
     implementation(libs.backdrop)

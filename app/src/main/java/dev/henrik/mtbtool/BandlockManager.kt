@@ -4,6 +4,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import kotlinx.coroutines.flow.first
+import kotlin.math.abs
 
 data class SavedBands(
     val lte: Set<Int>,
@@ -54,10 +55,81 @@ object BandlockManager {
         "0", "0", "0", "0", "0", "0", "1", "0", "0", "0", "0", "0", "0"
     )
 
-    // Byte offsets within the 279-byte DIAG response
-    private const val DIAG_OFFSET_LTE    = 36
-    private const val DIAG_OFFSET_NR_SA  = 108
-    private const val DIAG_OFFSET_NR_NSA = 172
+    // Fallback byte offsets used when auto-detection fails
+    private const val DIAG_OFFSET_LTE_DEFAULT    = 36
+    private const val DIAG_OFFSET_NR_SA_DEFAULT  = 108
+    private const val DIAG_OFFSET_NR_NSA_DEFAULT = 172
+
+    // NR bands that fit within a 10-byte bitmask (bit index = band-1 < 80).
+    // mmWave bands (257+) are excluded — they would never appear here.
+    private val NR_BANDS_SUB80: List<Int> = ALL_NR_BANDS.filter { it <= 80 }
+
+    /**
+     * Scans [diagBytes] to find the most likely byte offsets for the LTE, NR SA,
+     * and NR NSA bitmasks, accommodating devices where the DIAG response layout
+     * differs from the baseline offsets.
+     *
+     * A candidate offset is accepted when decoding it as a bitmask against the
+     * known-bands list produces **zero spurious set bits** (no set bit lands on a
+     * band number outside the known list) and **at least [minBands] known bands**.
+     * The highest-scoring (most known bands) such offset wins.
+     *
+     * For NR, two non-overlapping offsets (≥ 10 bytes apart) are selected; the
+     * lower one is assigned to SA and the higher to NSA, matching the layout
+     * convention of the baseline DIAG response.
+     *
+     * Falls back to the hardcoded defaults if no valid offset is found.
+     */
+    internal data class BandOffsets(val lte: Int, val nrSa: Int, val nrNsa: Int)
+
+    internal fun detectBandOffsets(
+        diagBytes: List<Int>,
+        minBands: Int = 5
+    ): BandOffsets {
+        fun scanCandidates(length: Int, knownBands: List<Int>): List<Pair<Int, Int>> {
+            // Returns list of (score, offset) sorted best-first
+            val results = mutableListOf<Pair<Int, Int>>()
+            val maxOffset = diagBytes.size - length
+            for (offset in 0..maxOffset) {
+                var found = 0
+                var spurious = 0
+                for (bit in 0 until length * 8) {
+                    val band = bit + 1
+                    val byteIndex = offset + bit / 8
+                    val bitInByte = bit % 8
+                    if ((diagBytes[byteIndex] shr bitInByte) and 1 == 1) {
+                        if (band in knownBands) found++ else spurious++
+                    }
+                }
+                if (spurious == 0 && found >= minBands) {
+                    results.add(found to offset)
+                }
+            }
+            results.sortByDescending { it.first }
+            return results
+        }
+
+        // ── LTE ───────────────────────────────────────────────────────────────
+        val lteCandidates = scanCandidates(9, ALL_LTE_BANDS)
+        val lteOffset = lteCandidates.firstOrNull()?.second ?: DIAG_OFFSET_LTE_DEFAULT
+
+        // ── NR: pick two non-overlapping offsets, lower=SA, higher=NSA ────────
+        val nrCandidates = scanCandidates(10, NR_BANDS_SUB80)
+        val nrOffsets = mutableListOf<Int>()
+        for ((_, offset) in nrCandidates) {
+            if (nrOffsets.all { abs(it - offset) >= 10 }) {
+                nrOffsets.add(offset)
+            }
+            if (nrOffsets.size == 2) break
+        }
+        nrOffsets.sort()
+        val nrSaOffset  = nrOffsets.getOrElse(0) { DIAG_OFFSET_NR_SA_DEFAULT }
+        // If only one NR region was found, reuse it for NSA rather than falling back
+        // to the hardcoded default (which would be wrong on a device with a shifted layout).
+        val nrNsaOffset = nrOffsets.getOrElse(1) { nrOffsets.getOrElse(0) { DIAG_OFFSET_NR_NSA_DEFAULT } }
+
+        return BandOffsets(lte = lteOffset, nrSa = nrSaOffset, nrNsa = nrNsaOffset)
+    }
 
     // ── Bitmask parsing ────────────────────────────────────────────────────────
 
@@ -164,6 +236,17 @@ object BandlockManager {
     }
 
     /**
+     * Like [parseBytes] but returns an empty list instead of throwing when the NV file
+     * does not exist or returns unrecognised output. Use this whenever a missing file
+     * should be treated as "all zeros" (all bands disabled) rather than an error.
+     */
+    fun parseBytesOrEmpty(raw: String): List<Int> = try {
+        parseBytes(raw)
+    } catch (_: IllegalStateException) {
+        emptyList()
+    }
+
+    /**
      * Parses the raw stdout of the DIAG read command into a list of byte values.
      * Looks for a line starting with "rsp data:" and parses "0xNN" tokens.
      * Returns an empty list if no such line is found.
@@ -206,13 +289,15 @@ object BandlockManager {
 
     /**
      * Interprets a parsed DIAG response byte list as hardware-supported bands.
-     * LTE uses 9 bytes at [DIAG_OFFSET_LTE], NR SA 10 bytes at [DIAG_OFFSET_NR_SA],
-     * NR NSA 10 bytes at [DIAG_OFFSET_NR_NSA].
+     * Automatically detects the byte offsets for LTE (9 bytes), NR SA (10 bytes),
+     * and NR NSA (10 bytes) using [detectBandOffsets], falling back to the baseline
+     * offsets (LTE=36, NR SA=108, NR NSA=172) if detection finds no valid bitmask.
      */
     fun parseSupportedBands(diagBytes: List<Int>): DetectedBands {
-        val lte   = parseBitmaskBands(diagBytes, DIAG_OFFSET_LTE,    9,  ALL_LTE_BANDS)
-        val nrSa  = parseBitmaskBands(diagBytes, DIAG_OFFSET_NR_SA,  10, ALL_NR_BANDS)
-        val nrNsa = parseBitmaskBands(diagBytes, DIAG_OFFSET_NR_NSA, 10, ALL_NR_BANDS)
+        val offsets = detectBandOffsets(diagBytes)
+        val lte   = parseBitmaskBands(diagBytes, offsets.lte,   9,  ALL_LTE_BANDS)
+        val nrSa  = parseBitmaskBands(diagBytes, offsets.nrSa,  10, ALL_NR_BANDS)
+        val nrNsa = parseBitmaskBands(diagBytes, offsets.nrNsa, 10, ALL_NR_BANDS)
         return DetectedBands(lte = lte, nrSa = nrSa, nrNsa = nrNsa)
     }
 

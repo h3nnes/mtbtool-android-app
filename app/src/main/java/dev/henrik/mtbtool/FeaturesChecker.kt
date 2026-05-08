@@ -20,7 +20,7 @@ data class CheckResult(
  */
 suspend fun checkAll(
     simSlot: Int,
-    shizukuManager: ShizukuManager
+    executionManager: ExecutionManager
 ): CheckResult {
     val statuses     = mutableMapOf<FeatureDef, FeatureStatus>()
     val originalBytes = mutableMapOf<FeatureDef, List<List<Int>>>()
@@ -30,7 +30,7 @@ suspend fun checkAll(
         val byteArrays = mutableListOf<List<Int>>()
 
         for (path in feature.reads) {
-            val raw = shizukuManager.execMtbWithOutput(
+            val raw = executionManager.execMtbWithOutput(
                 arrayOf("4", "4", simSlot.toString(), path)
             )
             val exitLine = raw.lines().firstOrNull() ?: ""
@@ -66,11 +66,11 @@ suspend fun checkAll(
 suspend fun disableFeature(
     feature: FeatureDef,
     simSlot: Int,
-    shizukuManager: ShizukuManager
+    executionManager: ExecutionManager
 ): String? {
     for (write in feature.writes) {
         val args = arrayOf("4", "5", simSlot.toString(), write.path) + write.bytes.split(" ").toTypedArray()
-        val raw = shizukuManager.execMtbWithOutput(args)
+        val raw = executionManager.execMtbWithOutput(args)
         val exitLine = raw.lines().firstOrNull() ?: ""
         val exitCode = exitLine.removePrefix("EXIT:").toIntOrNull() ?: -1
         if (exitCode != 0) {
@@ -90,13 +90,13 @@ suspend fun restoreFeature(
     feature: FeatureDef,
     originalBytes: List<List<Int>>,
     simSlot: Int,
-    shizukuManager: ShizukuManager
+    executionManager: ExecutionManager
 ): String? {
     feature.reads.forEachIndexed { index, path ->
         val bytes = originalBytes.getOrNull(index) ?: return "No original data for ${path.substringAfterLast('/')}"
         val byteArgs = bytes.map { it.toString() }.toTypedArray()
         val args = arrayOf("4", "5", simSlot.toString(), path) + byteArgs
-        val raw = shizukuManager.execMtbWithOutput(args)
+        val raw = executionManager.execMtbWithOutput(args)
         val exitLine = raw.lines().firstOrNull() ?: ""
         val exitCode = exitLine.removePrefix("EXIT:").toIntOrNull() ?: -1
         if (exitCode != 0) {

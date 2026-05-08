@@ -26,7 +26,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
-import dev.henrik.mtbtool.ShizukuManager
+import dev.henrik.mtbtool.ExecutionManager
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Card
@@ -52,7 +52,7 @@ sealed class ReadState {
 
 @Composable
 fun ReadScreen(
-    shizukuManager: ShizukuManager,
+    executionManager: ExecutionManager,
     contentPadding: PaddingValues = PaddingValues()
 ) {
     var itemName by remember { mutableStateOf("") }
@@ -70,14 +70,14 @@ fun ReadScreen(
     fun doQuery() {
         val name = itemName.trim()
         if (name.isEmpty()) return
-        if (!shizukuManager.isReady) {
-            readState = ReadState.Error("Shizuku not ready")
+        if (!executionManager.isReady) {
+            readState = ReadState.Error("Backend not ready")
             return
         }
         val path = basePath + name
         readState = ReadState.Loading
         scope.launch {
-            val raw = shizukuManager.execMtbWithOutput(arrayOf("4", "4", "0", path))
+            val raw = executionManager.execMtbWithOutput(arrayOf("4", "4", "0", path))
             val exitLine = raw.lines().firstOrNull() ?: ""
             val exitCode = exitLine.removePrefix("EXIT:").toIntOrNull() ?: -1
             val output = raw.lines().drop(1).joinToString("\n")

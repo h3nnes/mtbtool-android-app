@@ -28,7 +28,7 @@ import androidx.compose.ui.unit.dp
 import dev.henrik.mtbtool.BulkImporter
 import dev.henrik.mtbtool.ImportCommand
 import dev.henrik.mtbtool.ImportEvent
-import dev.henrik.mtbtool.ShizukuManager
+import dev.henrik.mtbtool.ExecutionManager
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
@@ -44,7 +44,7 @@ sealed class HomeState {
 
 @Composable
 fun HomeScreen(
-    shizukuManager: ShizukuManager,
+    executionManager: ExecutionManager,
     state: HomeState,
     onStateChange: (HomeState) -> Unit,
     errorMessage: String?,
@@ -80,8 +80,8 @@ fun HomeScreen(
                 ),
         ) {
             // ── Shizuku banner ────────────────────────────────────────────
-            if (!shizukuManager.isReady) {
-                ShizukuBanner(onGrantClick = { shizukuManager.requestPermission() })
+            if (!executionManager.isReady) {
+                BackendBanner(onGrantClick = { executionManager.requestPermission() })
                 Spacer(Modifier.height(8.dp))
             }
 
@@ -125,14 +125,14 @@ fun HomeScreen(
                     Spacer(Modifier.height(8.dp))
                     Button(
                         onClick = {
-                            if (!shizukuManager.isReady) {
-                                onErrorChange("Shizuku not ready")
+                            if (!executionManager.isReady) {
+                                onErrorChange("Backend not ready")
                                 return@Button
                             }
                             onStateChange(HomeState.Importing(s.commands, 0, emptyList()))
                             scope.launch {
                                 val results = mutableListOf<Pair<ImportCommand, Int>>()
-                                BulkImporter.import(s.commands, shizukuManager).collect { event ->
+                                BulkImporter.import(s.commands, executionManager).collect { event ->
                                     when (event) {
                                         is ImportEvent.Progress -> {
                                             results.add(event.command to event.exitCode)
@@ -181,7 +181,7 @@ fun HomeScreen(
                         Button(
                             onClick = {
                                 scope.launch {
-                                    shizukuManager.execMtb(arrayOf("11", "0"))
+                                    executionManager.execMtb(arrayOf("11", "0"))
                                 }
                             },
                             modifier = Modifier.fillMaxWidth()
@@ -217,7 +217,7 @@ fun HomeScreen(
 }
 
 @Composable
-private fun ShizukuBanner(onGrantClick: () -> Unit) {
+private fun BackendBanner(onGrantClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -226,7 +226,7 @@ private fun ShizukuBanner(onGrantClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
-            "Shizuku not available. Grant permission to use this app.",
+            "Root or Shizuku access required. Grant permission to use this app.",
             style = MiuixTheme.textStyles.body2,
             modifier = Modifier.weight(1f)
         )

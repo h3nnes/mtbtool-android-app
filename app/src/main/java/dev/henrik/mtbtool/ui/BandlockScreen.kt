@@ -1,5 +1,6 @@
 package dev.henrik.mtbtool.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -28,7 +29,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import dev.henrik.mtbtool.BandlockManager
 import dev.henrik.mtbtool.SavedBands
-import dev.henrik.mtbtool.ShizukuManager
+import dev.henrik.mtbtool.ExecutionManager
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -37,7 +38,11 @@ import top.yukonga.miuix.kmp.basic.Checkbox
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.DropdownEntry
 import top.yukonga.miuix.kmp.basic.DropdownItem
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -69,7 +74,7 @@ private val ColorError = Color(0xFFF44336)
 
 @Composable
 fun BandlockScreen(
-    shizukuManager: ShizukuManager,
+    executionManager: ExecutionManager,
     dataStore: DataStore<Preferences>,
     contentPadding: PaddingValues = PaddingValues()
 ) {
@@ -103,23 +108,23 @@ fun BandlockScreen(
         supported_nrNsa: Set<Int>,
         supported_nrSa: Set<Int>
     ) {
-        val rawLtePrimary = shizukuManager.execMtbWithOutput(
+        val rawLtePrimary = executionManager.execMtbWithOutput(
             arrayOf("4", "4", "0", BandlockManager.PATH_LTE_PRIMARY)
         )
-        val rawLteExt = shizukuManager.execMtbWithOutput(
+        val rawLteExt = executionManager.execMtbWithOutput(
             arrayOf("4", "4", "0", BandlockManager.PATH_LTE_EXTENSION)
         )
-        val rawNrNsa = shizukuManager.execMtbWithOutput(
+        val rawNrNsa = executionManager.execMtbWithOutput(
             arrayOf("4", "4", "0", BandlockManager.PATH_NR_NSA)
         )
-        val rawNr = shizukuManager.execMtbWithOutput(
+        val rawNr = executionManager.execMtbWithOutput(
             arrayOf("4", "4", "0", BandlockManager.PATH_NR)
         )
 
-        val enabledLte = BandlockManager.parseLtePrimary(BandlockManager.parseBytes(rawLtePrimary)) +
-                         BandlockManager.parseLteExtension(BandlockManager.parseBytes(rawLteExt))
-        val enabledNrNsa = BandlockManager.parseNrNsa(BandlockManager.parseBytes(rawNrNsa))
-        val enabledNr    = BandlockManager.parseNr(BandlockManager.parseBytes(rawNr))
+        val enabledLte = BandlockManager.parseLtePrimary(BandlockManager.parseBytesOrEmpty(rawLtePrimary)) +
+                         BandlockManager.parseLteExtension(BandlockManager.parseBytesOrEmpty(rawLteExt))
+        val enabledNrNsa = BandlockManager.parseNrNsa(BandlockManager.parseBytesOrEmpty(rawNrNsa))
+        val enabledNr    = BandlockManager.parseNr(BandlockManager.parseBytesOrEmpty(rawNr))
 
         lteChecked.clear()
         supported_lte.forEach   { band -> lteChecked[band]   = band in enabledLte }
@@ -145,11 +150,11 @@ fun BandlockScreen(
     // ── Detect / re-detect logic ───────────────────────────────────────────────
     fun runDetect() {
         detectInfoMessage = null
-        if (!shizukuManager.isReady) {
+        if (!executionManager.isReady) {
             if (supportedLte.isNotEmpty() || supportedNrNsa.isNotEmpty() || supportedNrSa.isNotEmpty()) {
-                detectInfoMessage = "Shizuku not ready — your configured bands are still active."
+                detectInfoMessage = "Backend not ready — your configured bands are still active."
             } else {
-                state = BandlockState.DetectError("Shizuku not ready")
+                state = BandlockState.DetectError("Backend not ready")
                 showDetectFailedDialog = true
             }
             return
@@ -157,8 +162,8 @@ fun BandlockScreen(
         state = BandlockState.Detecting
         scope.launch {
             try {
-                shizukuManager.execMtbWithOutput(BandlockManager.DIAG_OPEN_ARGS)
-                val raw = shizukuManager.execMtbWithOutput(BandlockManager.DIAG_READ_ARGS)
+                executionManager.execMtbWithOutput(BandlockManager.DIAG_OPEN_ARGS)
+                val raw = executionManager.execMtbWithOutput(BandlockManager.DIAG_READ_ARGS)
                 val diagBytes = BandlockManager.parseDiagResponse(raw)
                 val hasBands = supportedLte.isNotEmpty() || supportedNrNsa.isNotEmpty() || supportedNrSa.isNotEmpty()
                 if (diagBytes.isEmpty()) {
@@ -267,6 +272,13 @@ fun BandlockScreen(
                 style = MiuixTheme.textStyles.body2,
                 color = MiuixTheme.colorScheme.onSurfaceVariantActions
             )
+            if (bandSource == BandSource.Diag) {
+                Text(
+                    text  = "Band detection uses automatic offset guessing and may not be fully accurate on all devices.",
+                    style = MiuixTheme.textStyles.body2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantActions
+                )
+            }
         }
 
         if (state is BandlockState.Idle) {
@@ -422,8 +434,8 @@ fun BandlockScreen(
             ) {
                 Button(
                     onClick = {
-                        if (!shizukuManager.isReady) {
-                            state = BandlockState.ApplyError("Shizuku not ready")
+                        if (!executionManager.isReady) {
+                            state = BandlockState.ApplyError("Backend not ready")
                             return@Button
                         }
                         state = BandlockState.Applying
@@ -434,25 +446,25 @@ fun BandlockScreen(
                                 val chosenNrSa  = nrSaChecked.filterValues  { it }.keys
 
                                 val ltePrimaryBytes = BandlockManager.buildLtePrimary(chosenLte)
-                                shizukuManager.execMtbWithOutput(
+                                executionManager.execMtbWithOutput(
                                     arrayOf("4", "5", "0", BandlockManager.PATH_LTE_PRIMARY) +
                                     ltePrimaryBytes.map { it.toString() }.toTypedArray()
                                 )
 
                                 val lteExtBytes = BandlockManager.buildLteExtension(chosenLte)
-                                shizukuManager.execMtbWithOutput(
+                                executionManager.execMtbWithOutput(
                                     arrayOf("4", "5", "0", BandlockManager.PATH_LTE_EXTENSION) +
                                     lteExtBytes.map { it.toString() }.toTypedArray()
                                 )
 
                                 val nrNsaBytes = BandlockManager.buildNrNsa(chosenNrNsa)
-                                shizukuManager.execMtbWithOutput(
+                                executionManager.execMtbWithOutput(
                                     arrayOf("4", "5", "0", BandlockManager.PATH_NR_NSA) +
                                     nrNsaBytes.map { it.toString() }.toTypedArray()
                                 )
 
                                 val nrSaBytes = BandlockManager.buildNr(chosenNrSa)
-                                shizukuManager.execMtbWithOutput(
+                                executionManager.execMtbWithOutput(
                                     arrayOf("4", "5", "0", BandlockManager.PATH_NR) +
                                     nrSaBytes.map { it.toString() }.toTypedArray()
                                 )
@@ -498,7 +510,7 @@ fun BandlockScreen(
                     rebootError    = null
                     scope.launch {
                         try {
-                            shizukuManager.execMtb(arrayOf("11", "0"))
+                            executionManager.execMtb(arrayOf("11", "0"))
                         } catch (e: Exception) {
                             rebootError = e.message ?: "Unknown error"
                         } finally {
@@ -637,6 +649,8 @@ private fun BandConfigScreen(
     val scope        = rememberCoroutineScope()
     val scrollState  = rememberScrollState()
 
+    BackHandler(enabled = true, onBack = onBack)
+
     LaunchedEffect(Unit) {
         val saved = BandlockManager.loadSavedBands(dataStore)
         BandlockManager.ALL_LTE_BANDS.forEach { band ->
@@ -654,28 +668,40 @@ private fun BandConfigScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(scrollState)
             .padding(
-                top    = contentPadding.calculateTopPadding() + 16.dp,
-                start  = 16.dp,
-                end    = 16.dp,
-                bottom = 0.dp
-            ),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+                top   = contentPadding.calculateTopPadding() + 8.dp,
+                start = 16.dp,
+                end   = 16.dp
+            )
     ) {
+        // ── Fixed header — does not scroll ────────────────────────────────────
         Row(
-            modifier              = Modifier.fillMaxWidth(),
-            verticalAlignment     = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            modifier          = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Button(onClick = onBack) { Text("← Back") }
+            IconButton(onClick = onBack) {
+                Icon(
+                    imageVector        = MiuixIcons.Back,
+                    contentDescription = "Back",
+                    tint               = MiuixTheme.colorScheme.onBackground
+                )
+            }
             Text(
-                text  = "Configure Device Bands",
-                style = MiuixTheme.textStyles.title4,
-                color = MiuixTheme.colorScheme.onBackground
+                text     = "Configure Device Bands",
+                style    = MiuixTheme.textStyles.title4,
+                color    = MiuixTheme.colorScheme.onBackground,
+                modifier = Modifier.padding(start = 4.dp)
             )
         }
 
+        // ── Scrollable content ────────────────────────────────────────────────
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(scrollState)
+                .padding(top = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
         if (!loaded) {
             CircularProgressIndicator()
         } else {
@@ -753,5 +779,6 @@ private fun BandConfigScreen(
 
             Spacer(Modifier.height(contentPadding.calculateBottomPadding()))
         }
-    }
+        } // end scrollable Column
+    } // end outer Column
 }

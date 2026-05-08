@@ -13,16 +13,16 @@ private val ComponentActivity.bandDataStore by preferencesDataStore(name = "band
 
 class MainActivity : ComponentActivity() {
 
-    private val shizukuManager = ShizukuManager()
+    private val executionManager by lazy { ExecutionManager(applicationContext) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        shizukuManager.start()
+        executionManager.start()
         setContent {
             MiuixTheme(colors = darkColorScheme()) {
                 MainScreen(
-                    shizukuManager = shizukuManager,
+                    executionManager = executionManager,
                     dataStore = bandDataStore
                 )
             }
@@ -31,6 +31,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        shizukuManager.stop()
+        executionManager.stop()
     }
 }

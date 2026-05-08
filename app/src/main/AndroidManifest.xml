@@ -10,6 +10,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:screenOrientation="portrait"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -22,6 +23,12 @@
             android:name=".MtbUserService"
             android:exported="false"
             android:process=":user_service" />
+
+        <!-- libsu RootService -->
+        <service
+            android:name=".MtbRootService"
+            android:exported="false"
+            android:process=":root_service" />
 
         <!-- Shizuku provider -->
         <provider

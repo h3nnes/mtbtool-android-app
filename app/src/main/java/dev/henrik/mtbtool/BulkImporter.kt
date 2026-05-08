@@ -35,13 +35,13 @@ object BulkImporter {
 
     fun import(
         commands: List<ImportCommand>,
-        shizukuManager: ShizukuManager
+        executionManager: ExecutionManager
     ): Flow<ImportEvent> = flow {
         var ok = 0
         var fail = 0
         commands.forEachIndexed { index, cmd ->
             val exitCode = try {
-                shizukuManager.execMtb(cmd.args.toTypedArray())
+                executionManager.execMtb(cmd.args.toTypedArray())
             } catch (e: Exception) {
                 emit(ImportEvent.Error("UserService disconnected: ${e.message}"))
                 return@flow

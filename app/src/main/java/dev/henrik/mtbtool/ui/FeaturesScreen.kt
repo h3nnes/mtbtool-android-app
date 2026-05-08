@@ -28,7 +28,7 @@ import androidx.compose.ui.unit.dp
 import dev.henrik.mtbtool.ALL_FEATURES
 import dev.henrik.mtbtool.FeatureDef
 import dev.henrik.mtbtool.FeatureStatus
-import dev.henrik.mtbtool.ShizukuManager
+import dev.henrik.mtbtool.ExecutionManager
 import dev.henrik.mtbtool.checkAll
 import dev.henrik.mtbtool.disableFeature
 import dev.henrik.mtbtool.restoreFeature
@@ -72,7 +72,7 @@ private sealed class NrModeState {
 
 @Composable
 fun FeaturesScreen(
-    shizukuManager: ShizukuManager,
+    executionManager: ExecutionManager,
     contentPadding: PaddingValues = PaddingValues()
 ) {
     var simSlot by remember { mutableIntStateOf(0) }
@@ -86,7 +86,7 @@ fun FeaturesScreen(
         nrModeState = NrModeState.Loading
         try {
             // NV item is modem-global; always use slot 0
-            val raw = shizukuManager.execMtbWithOutput(
+            val raw = executionManager.execMtbWithOutput(
                 arrayOf("4", "4", "0", PATH_NR5G_MODE)
             )
             val exitLine = raw.lines().firstOrNull() ?: ""
@@ -112,7 +112,7 @@ fun FeaturesScreen(
 
     // Auto-read on first composition
     LaunchedEffect(Unit) {
-        if (shizukuManager.isReady) {
+        if (executionManager.isReady) {
             readNrMode()
         }
     }
@@ -182,15 +182,15 @@ fun FeaturesScreen(
                             enabled = isEnabled,
                             onSelectedIndexChange = { newIndex ->
                                 if (newIndex == currentIndex) return@OverlayDropdownPreference
-                                if (!shizukuManager.isReady) {
-                                    nrModeState = NrModeState.Error("Shizuku not ready")
+                if (!executionManager.isReady) {
+                                    nrModeState = NrModeState.Error("Backend not ready")
                                     return@OverlayDropdownPreference
                                 }
                                 nrModeState = NrModeState.Writing
                                 writeJob = scope.launch {
                                     try {
                                         // NV item is modem-global; always use slot 0
-                                        val raw = shizukuManager.execMtbWithOutput(
+                                        val raw = executionManager.execMtbWithOutput(
                                             arrayOf("4", "5", "0", PATH_NR5G_MODE, newIndex.toString())
                                         )
                                         val exitLine = raw.lines().firstOrNull() ?: ""
@@ -212,7 +212,7 @@ fun FeaturesScreen(
                 Button(
                     onClick = {
                         scope.launch {
-                            shizukuManager.execMtb(arrayOf("11", "0"))
+                            executionManager.execMtb(arrayOf("11", "0"))
                         }
                     },
                     modifier = Modifier
@@ -248,9 +248,9 @@ fun FeaturesScreen(
         // ── Check button ──────────────────────────────────────────────────────
         Button(
             onClick = {
-                if (!shizukuManager.isReady) {
-                    state = FeaturesState.CheckError("Shizuku not ready")
-                    nrModeState = NrModeState.Error("Shizuku not ready")
+                if (!executionManager.isReady) {
+                    state = FeaturesState.CheckError("Backend not ready")
+                    nrModeState = NrModeState.Error("Backend not ready")
                     return@Button
                 }
                 state = FeaturesState.Checking
@@ -259,7 +259,7 @@ fun FeaturesScreen(
                     readNrMode()
                     // Check features
                     try {
-                        val result = checkAll(simSlot, shizukuManager)
+                        val result = checkAll(simSlot, executionManager)
                         state = FeaturesState.Checked(
                             results = result.statuses,
                             originalBytes = result.originalBytes
@@ -332,7 +332,7 @@ fun FeaturesScreen(
                                     updated[feature] = FeatureStatus.Writing
                                     state = FeaturesState.Checked(updated, s.originalBytes)
                                     scope.launch {
-                                        val error = disableFeature(feature, simSlot, shizukuManager)
+                                        val error = disableFeature(feature, simSlot, executionManager)
                                         val current = (state as? FeaturesState.Checked)?.results?.toMutableMap()
                                             ?: return@launch
                                         current[feature] = if (error == null) FeatureStatus.AlreadyDisabled
@@ -348,7 +348,7 @@ fun FeaturesScreen(
                     if (s.originalBytes.isNotEmpty()) {
                         Button(
                             onClick = {
-                                if (!shizukuManager.isReady) return@Button
+                                if (!executionManager.isReady) return@Button
                                 // Mark all restorable features as Restoring
                                 val updated = s.results.toMutableMap()
                                 // Mark only AlreadyDisabled features as Restoring (CanDisable ones are unmodified)
@@ -361,7 +361,7 @@ fun FeaturesScreen(
                                 scope.launch {
                                     val orig = s.originalBytes
                                     for ((feature, bytes) in orig) {
-                                        val error = restoreFeature(feature, bytes, simSlot, shizukuManager)
+                                        val error = restoreFeature(feature, bytes, simSlot, executionManager)
                                         val current = (state as? FeaturesState.Checked)?.results?.toMutableMap()
                                             ?: return@launch
                                         current[feature] = if (error == null) {
@@ -383,7 +383,7 @@ fun FeaturesScreen(
                     Button(
                         onClick = {
                             scope.launch {
-                                shizukuManager.execMtb(arrayOf("11", "0"))
+                                executionManager.execMtb(arrayOf("11", "0"))
                             }
                         },
                         modifier = Modifier.fillMaxWidth(),
