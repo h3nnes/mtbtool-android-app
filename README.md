@@ -4,6 +4,8 @@ An Android app for managing EFS NV items on Xiaomi Qualcomm devices. Uses root a
 
 It wraps around the mtb binary located in `/vendor/bin` directory. If this binary does not exist, the app will NOT work! Tested on MIUI/HyperOS devices running Android 13+.
 
+[![tg_badge]](https://t.me/mtbtoolapp)
+
 ## Screenshots
 
 <p align="center">
@@ -124,3 +126,5 @@ Output: `app/build/outputs/apk/release/app-release-unsigned.apk`
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+[tg_badge]: https://img.shields.io/badge/TG-Channel-4991D3?style=for-the-badge&logo=telegram
