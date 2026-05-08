@@ -46,12 +46,17 @@ fun InfoScreen(contentPadding: PaddingValues = PaddingValues()) {
             color = MiuixTheme.colorScheme.onSurfaceVariantActions
         )
         Text(
-            text = "A modem configuration tool for Qualcomm-based Xiaomi devices. Bulk-import EFS NV item files, read raw EFS data, toggle modem features, and configure band locking for LTE and 5G NR. No root required — uses Shizuku for shell-UID access to /vendor/bin/mtb.",
+            text = "A modem configuration tool for Qualcomm-based Xiaomi devices. Bulk-import EFS NV item files, read raw EFS data, toggle modem features, and configure band locking for LTE and 5G NR.",
             style = MiuixTheme.textStyles.body1,
             color = MiuixTheme.colorScheme.onBackground
         )
         Text(
-            text = "Requires Shizuku to be installed and running.",
+            text = "Backend: root access (preferred) or Shizuku. The app will use root if granted, and fall back to Shizuku automatically. At least one must be available.",
+            style = MiuixTheme.textStyles.body2,
+            color = MiuixTheme.colorScheme.onSurfaceVariantActions
+        )
+        Text(
+            text = "Requires a Qualcomm-based Xiaomi device with /vendor/bin/mtb present.",
             style = MiuixTheme.textStyles.body2,
             color = MiuixTheme.colorScheme.onSurfaceVariantActions
         )

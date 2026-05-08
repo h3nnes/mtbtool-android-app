@@ -9,10 +9,19 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.unit.Velocity
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -24,6 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import dev.henrik.mtbtool.ExecutionManager
@@ -119,6 +129,10 @@ fun ReadScreen(
                     keyboardOptions = KeyboardOptions(
                         capitalization = KeyboardCapitalization.None,
                         autoCorrectEnabled = false,
+                        imeAction = ImeAction.Send,
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onSend = { doQuery() }
                     ),
                     modifier = Modifier.weight(1f)
                 )
@@ -190,6 +204,24 @@ fun ReadScreen(
                     Spacer(Modifier.height(contentPadding.calculateBottomPadding()))
                 }
                 is ReadState.Success -> {
+                    val hScrollState = rememberScrollState()
+                    // After the horizontalScroll child has consumed what it can,
+                    // eat any remaining horizontal delta/velocity so the pager
+                    // never flips pages on a swipe over the hex data area.
+                    val consumeHorizontal = remember {
+                        object : NestedScrollConnection {
+                            override fun onPostScroll(
+                                consumed: Offset,
+                                available: Offset,
+                                source: NestedScrollSource
+                            ): Offset = Offset(available.x, 0f)
+
+                            override suspend fun onPostFling(
+                                consumed: Velocity,
+                                available: Velocity
+                            ): Velocity = Velocity(available.x, 0f)
+                        }
+                    }
                     Column(
                         modifier = Modifier
                             .weight(1f)
@@ -203,30 +235,40 @@ fun ReadScreen(
                             color = MiuixTheme.colorScheme.onSurfaceVariantActions
                         )
                         Spacer(Modifier.height(4.dp))
-                        s.hexRows.forEachIndexed { idx, tokens ->
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = "%04X  ".format(idx * 16),
-                                    style = MiuixTheme.textStyles.body2,
-                                    color = MiuixTheme.colorScheme.onSurfaceVariantActions,
-                                    fontFamily = FontFamily.Monospace
-                                )
-                                tokens.forEachIndexed { tokenIdx, token ->
-                                    if (tokenIdx > 0) {
-                                        Text(
-                                            text = " ",
-                                            style = MiuixTheme.textStyles.body2,
-                                            fontFamily = FontFamily.Monospace,
-                                            color = MiuixTheme.colorScheme.onSurfaceVariantActions
-                                        )
-                                    }
-                                    Text(
-                                        text = token,
-                                        style = MiuixTheme.textStyles.body2,
-                                        color = hexByteColor(token),
+                        Column(
+                            modifier = Modifier
+                                .nestedScroll(consumeHorizontal)
+                                .horizontalScroll(hScrollState),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            s.hexRows.forEachIndexed { idx, tokens ->
+                                val annotated = buildAnnotatedString {
+                                    val addrStyle = SpanStyle(
+                                        color = MiuixTheme.colorScheme.onSurfaceVariantActions,
                                         fontFamily = FontFamily.Monospace
                                     )
+                                    pushStyle(addrStyle)
+                                    append("%04X  ".format(idx * 16))
+                                    pop()
+                                    tokens.forEachIndexed { tokenIdx, token ->
+                                        if (tokenIdx > 0) {
+                                            pushStyle(addrStyle)
+                                            append(" ")
+                                            pop()
+                                        }
+                                        pushStyle(SpanStyle(
+                                            color = hexByteColor(token),
+                                            fontFamily = FontFamily.Monospace
+                                        ))
+                                        append(token)
+                                        pop()
+                                    }
                                 }
+                                Text(
+                                    text = annotated,
+                                    style = MiuixTheme.textStyles.body2,
+                                    softWrap = false
+                                )
                             }
                         }
                         Spacer(Modifier.height(contentPadding.calculateBottomPadding()))

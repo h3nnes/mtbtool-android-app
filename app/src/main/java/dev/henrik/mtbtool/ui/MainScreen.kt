@@ -1,11 +1,15 @@
 package dev.henrik.mtbtool.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
@@ -17,8 +21,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.size
@@ -246,7 +252,8 @@ fun MainScreen(
             }
         }
     ) { innerPadding ->
-        HorizontalPager(
+        Box(modifier = Modifier.fillMaxSize()) {
+            HorizontalPager(
             state = pagerState,
             beyondViewportPageCount = 1,
             userScrollEnabled = true,
@@ -296,6 +303,26 @@ fun MainScreen(
                 else -> InfoScreen(contentPadding = innerPadding)
             }
         }
+        // Status-bar fade overlay: gradient from surface colour → transparent,
+        // starts at y=0 and fades out over the status bar area so app content
+        // isn't sharply visible through the status bar icons.
+        val density = LocalDensity.current
+        val statusBarHeight = with(density) { WindowInsets.statusBars.getTop(density).toDp() }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(statusBarHeight + 24.dp)
+                .align(Alignment.TopStart)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            surfaceColor,
+                            surfaceColor.copy(alpha = 0f)
+                        )
+                    )
+                )
+        )
+        } // close outer Box
         WindowDialog(
             show = showIncompatibleDialog,
             title = "Device not compatible",

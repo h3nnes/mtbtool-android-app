@@ -1,19 +1,8 @@
 # MTB Tool
 
-An Android app for performing bandlock and managing EFS NV items on Qualcomm-based Xiaomi devices without root, using [Shizuku](https://github.com/RikkaApps/Shizuku) for privileged access.
+An Android app for managing EFS NV items on Xiaomi Qualcomm devices. Uses root access (preferred) or [Shizuku](https://github.com/RikkaApps/Shizuku) as a fallback for privileged access to `/vendor/bin/mtb`.
 
-It wraps around the mtb binary located in `/vendor/bin` directory. If this binary does not exist, the app will NOT work! Tested on MIUI/HyperOS devices running Android 13+.
-
-## Screenshots
-
-<p align="center">
-  <img src="https://github.com/user-attachments/assets/ec4a6e0d-8985-4ac5-8d25-d118e9c8e6ea" width="48%" alt="Screenshot 1"/>
-  <img src="https://github.com/user-attachments/assets/39d40b37-4512-4477-96ed-58e8ce59b76a" width="48%" alt="Screenshot 2"/>
-</p>
-<p align="center">
-  <img src="https://github.com/user-attachments/assets/cc6b48e9-5736-4b82-b60e-c8afb652b242" width="48%" alt="Screenshot 3"/>
-  <img src="https://github.com/user-attachments/assets/febfcfcb-c5b0-41c0-ab43-6aecd5c978e5" width="48%" alt="Screenshot 4"/>
-</p>
+Tested on MIUI/HyperOS devices running Android 13+.
 
 ## What it does
 
@@ -21,7 +10,7 @@ It wraps around the mtb binary located in `/vendor/bin` directory. If this binar
 Bulk-imports EFS NV item configuration files (`.txt`) exported from QPST/QXDM. Parses the file into individual write/delete commands and runs them sequentially via `mtb`, showing live progress. After a successful import a "Reboot Modem" button appears to apply the changes.
 
 ### Read tab
-Reads a single EFS NV item by name and displays its raw bytes as a color-coded hex dump. Supports both 4G/LTE (`/nv/item_files/modem/lte/rrc/efs/`) and 5G/NR (`/nv/item_files/modem/nr5g/RRC/`) base paths, selectable via a dropdown.
+Reads a single EFS NV item by name and displays its raw bytes as a colour-coded hex dump. Supports 4G/LTE (`/nv/item_files/modem/lte/rrc/efs/`), 5G/NR (`/nv/item_files/modem/nr5g/RRC/`), and a custom base path, selectable via a dropdown. The hex view is horizontally scrollable. The item name field triggers a read on keyboard confirm as well as the Send button.
 
 ### Features tab
 Checks and disables specific modem features by writing known-good NV values:
@@ -56,55 +45,70 @@ Configures and applies a persistent band lock to the modem by writing three EFS 
 
 The band source (detected from hardware or manually configured) is shown as a caption below the detect button. If detection succeeds after the user has manual bands configured, a dialog asks whether to switch to the detected bands or keep the manual configuration.
 
+### Cells tab
+Live monitor for LTE and NR cell information. Polls the modem at a configurable interval (1 s, 2 s, 5 s, 10 s, 30 s) and displays per-cell signal metrics for all visible LTE and NR cells, plus uplink TX power. Start/stop logging with a single button. Cell data persists across tab switches — polling continues in the background while you navigate the app.
+
 ### Info tab
-App version and basic usage notes.
+App version, backend description, and device compatibility notes.
+
+## Backend
+
+The app tries to acquire privileged access in this order:
+
+1. **Root** — binds a `RootService` (libsu 6) running as root UID. Preferred; works without Shizuku.
+2. **Shizuku** — binds a `UserService` running at shell UID. Used automatically if root is not available or denied.
+
+At least one backend must be running for any command to execute. The status banner at the top of each tab indicates whether the backend is ready.
 
 ## Structure
 
 ```
 app/src/main/
 ├── aidl/dev/henrik/mtbtool/
-│   └── IMtbService.aidl          # Shizuku UserService interface (execMtb, execMtbWithOutput)
+│   └── IMtbService.aidl              # Shared AIDL interface (execMtb, execMtbWithOutput)
 └── java/dev/henrik/mtbtool/
-    ├── MainActivity.kt           # Entry point, Shizuku lifecycle, DataStore instance
-    ├── ShizukuManager.kt         # Shizuku permission + UserService binding
-    ├── MtbUserService.kt         # Privileged UserService, runs mtb binary
-    ├── BulkImporter.kt           # Parses .txt files, streams import events
-    ├── FeatureDef.kt             # Feature definitions, NV write payloads, isDisabled checks
-    ├── FeaturesChecker.kt        # checkAll() and disableFeature() coroutine functions
-    ├── BandPreferences.kt        # DataStore key definitions for band configuration
-    ├── BandlockManager.kt        # Band bitmask build/parse logic + DataStore helpers
+    ├── MainActivity.kt               # Entry point, backend lifecycle, DataStore instance
+    ├── ExecutionManager.kt           # Unified backend: root-first with Shizuku fallback
+    ├── RootManager.kt                # libsu RootService binding lifecycle
+    ├── MtbRootService.kt             # RootService implementation (runs as root UID)
+    ├── ShizukuManager.kt             # Shizuku permission + UserService binding
+    ├── MtbUserService.kt             # Shizuku UserService implementation (runs at shell UID)
+    ├── BulkImporter.kt               # Parses .txt NV files, streams import events
+    ├── FeatureDef.kt                 # Feature definitions, NV write payloads, isDisabled checks
+    ├── FeaturesChecker.kt            # checkAll() and disableFeature() coroutine functions
+    ├── BandPreferences.kt            # DataStore key definitions for band configuration
+    ├── BandlockManager.kt            # Band bitmask build/parse logic + DIAG offset detection
+    ├── CellMonitor.kt                # Cell polling commands, response parsers, and StalenessTracker
     └── ui/
-        ├── MainScreen.kt         # 5-tab scaffold with FloatingBottomBar
-        ├── HomeScreen.kt         # Import tab UI
-        ├── ReadScreen.kt         # Read tab UI + hex display
-        ├── FeaturesScreen.kt     # Features tab UI
-        ├── BandlockScreen.kt     # Bandlock tab UI + BandConfigScreen
-        ├── InfoScreen.kt         # Info tab UI
-        ├── NvParseUtils.kt       # Shared hex output parsing + byte coloring
+        ├── MainScreen.kt             # 6-tab scaffold with FloatingBottomBar + status bar fade
+        ├── HomeScreen.kt             # Import tab UI
+        ├── ReadScreen.kt             # Read tab UI + horizontally scrollable hex dump
+        ├── FeaturesScreen.kt         # Features tab UI
+        ├── BandlockScreen.kt         # Bandlock tab UI + BandConfigScreen
+        ├── CellsScreen.kt            # Cells tab UI
+        ├── InfoScreen.kt             # Info tab UI
+        ├── NvParseUtils.kt           # Shared hex output parsing + byte colouring
         └── component/
-            └── FloatingBottomBar.kt  # Liquid-glass navigation bar
+            ├── FloatingBottomBar.kt  # Liquid-glass navigation bar
+            └── animation/
+                ├── DampedDragAnimation.kt
+                ├── DragGestureInspector.kt
+                └── InteractiveHighlight.kt
 ```
 
 ## Requirements
 
 - Android 13+ (minSdk 33)
-- Shizuku 13+ running on the device
 - Xiaomi device with Qualcomm modem and `mtb` binary at `/vendor/bin/mtb`
+- **Root access** (granted via su), OR **Shizuku 13+** running on the device
 
 ## Build
 
-Make sure, that `Shizuku-API` and `miuix` are inside the same folder as the app project.
-
 ```bash
-JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 ./gradlew :app:assembleDebug
+JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 ./gradlew :app:assembleRelease
 ```
 
-Output: `app/build/outputs/apk/debug/app-debug.apk`
-
-## Transparency
-
-Non-biological intelligence was used to support the development of this app
+Output: `app/build/outputs/apk/release/app-release-unsigned.apk`
 
 ## License
 
