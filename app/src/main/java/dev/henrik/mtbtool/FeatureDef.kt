@@ -33,7 +33,7 @@ data class FeatureDef(
 val ALL_FEATURES: List<FeatureDef> = listOf(
     FeatureDef(
         id = "r17_2t2t",
-        label = "R17 2T2T UL Tx Switching",
+        label = "Disable R17 2T2T UL Tx Switching",
         reads = listOf(NR_BASE + "cap_control_nrca_xf_plus_yt_swul_r17_band_combos_v2"),
         writes = listOf(
             NvWrite(
@@ -48,7 +48,7 @@ val ALL_FEATURES: List<FeatureDef> = listOf(
     ),
     FeatureDef(
         id = "r16_2t1t",
-        label = "R16 2T1T UL Tx Switching",
+        label = "Disable R16 2T1T UL Tx Switching",
         reads = listOf(NR_BASE + "cap_control_nrca_xf_plus_yt_swul_band_combos_v2"),
         writes = listOf(
             NvWrite(
@@ -63,7 +63,7 @@ val ALL_FEATURES: List<FeatureDef> = listOf(
     ),
     FeatureDef(
         id = "ul_mimo",
-        label = "UL MIMO (limit to 1Tx)",
+        label = "Disable UL MIMO",
         reads = listOf(NR_BASE + "cap_limit_rf_mimo"),
         writes = listOf(
             NvWrite(
@@ -78,7 +78,7 @@ val ALL_FEATURES: List<FeatureDef> = listOf(
     ),
     FeatureDef(
         id = "nr_ulca",
-        label = "NR UL Carrier Aggregation",
+        label = "Disable NR UL-CA",
         reads = listOf(
             NR_BASE + "cap_control_nrca_2x_f_plus_t_band_combos",
             NR_BASE + "cap_control_nrca_3x_f_plus_t_band_combos",
@@ -105,7 +105,7 @@ val ALL_FEATURES: List<FeatureDef> = listOf(
     ),
     FeatureDef(
         id = "dl_nrca",
-        label = "DL NR-CA (1cc only)",
+        label = "Disable NR DL-CA",
         reads = listOf(NR_BASE + "cap_nrca_downgrade_1cc"),
         writes = listOf(
             NvWrite(
@@ -120,7 +120,7 @@ val ALL_FEATURES: List<FeatureDef> = listOf(
     ),
     FeatureDef(
         id = "lowband_4rx",
-        label = "Lowband 4Rx → 2Rx",
+        label = "Disable Lowbands 4Rx",
         reads = listOf(NR_BASE + "cap_limit_rf_mimo"),
         writes = listOf(
             NvWrite(

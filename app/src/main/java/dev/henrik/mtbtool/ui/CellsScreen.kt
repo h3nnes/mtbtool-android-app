@@ -32,12 +32,14 @@ import dev.henrik.mtbtool.NrCellData
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.TabRow
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 internal val CELL_REFRESH_OPTIONS = listOf(1, 2, 5, 10, 30) // seconds
 internal val CELL_REFRESH_LABELS  = listOf("1s", "2s", "5s", "10s", "30s")
+private val simOptions = listOf("SIM 0", "SIM 1")
 
 private fun signalColor(fraction: Float): Color {
     val clamped = fraction.coerceIn(0f, 1f)
@@ -53,6 +55,8 @@ fun CellsScreen(
     nrCells: List<NrCellData>,
     txPower: Int?,
     hasPolled: Boolean,
+    simSlot: Int,
+    onSimSlotChange: (Int) -> Unit,
     onToggleLogging: () -> Unit,
     onRefreshIndexChange: (Int) -> Unit,
     contentPadding: PaddingValues = PaddingValues()
@@ -83,6 +87,14 @@ fun CellsScreen(
                            else ButtonDefaults.buttonColorsPrimary()
             ) {
                 Text(if (isLogging) "Stop Logging" else "Start Logging")
+            }
+
+            Card {
+                TabRow(
+                    tabs = simOptions,
+                    selectedTabIndex = simSlot,
+                    onTabSelected = { if (it != simSlot) onSimSlotChange(it) },
+                )
             }
 
             OverlayDropdownPreference(

@@ -54,9 +54,9 @@ object CellMonitor {
 
     // ── mtb command args ───────────────────────────────────────────────────────
 
-    fun lteArgs(opt: Int) = arrayOf("9", opt.toString(), "0")
-    fun nrArgs(opt: Int)  = arrayOf("9", opt.toString(), "0")
-    val txPowerArgs       = arrayOf("9", "31", "0")
+    fun lteArgs(opt: Int, slot: Int = 0) = arrayOf("9", opt.toString(), slot.toString())
+    fun nrArgs(opt: Int, slot: Int = 0)  = arrayOf("9", opt.toString(), slot.toString())
+    fun txPowerArgs(slot: Int = 0)        = arrayOf("9", "31", slot.toString())
 
     // LTE opts: PCC=0, SCC1=1, SCC2=2, SCC3=3
     val LTE_OPTS = listOf(0 to "PCC", 1 to "SCC1", 2 to "SCC2", 3 to "SCC3")

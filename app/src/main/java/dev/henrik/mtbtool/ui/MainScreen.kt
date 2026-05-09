@@ -94,6 +94,7 @@ fun MainScreen(
     var txPower        by remember { mutableStateOf<Int?>(null) }
     var cellHasPolled  by remember { mutableStateOf(false) }
     var cellJob        by remember { mutableStateOf<Job?>(null) }
+    var cellSimSlot    by remember { mutableIntStateOf(0) }
     val lteTracker     = remember { StalenessTracker<LteCellData>() }
     val nrTracker      = remember { StalenessTracker<NrCellData>() }
 
@@ -101,12 +102,12 @@ fun MainScreen(
         onDispose { cellJob?.cancel() }
     }
 
-    suspend fun cellPoll() {
+    suspend fun cellPoll(slot: Int) {
         try {
             val lte = withContext(Dispatchers.IO) {
                 CellMonitor.LTE_OPTS.mapNotNull { (opt, label) ->
                     try {
-                        val raw = executionManager.execMtbWithOutput(CellMonitor.lteArgs(opt))
+                        val raw = executionManager.execMtbWithOutput(CellMonitor.lteArgs(opt, slot))
                         CellMonitor.parseLteCell(raw, label)
                     } catch (_: Exception) { null }
                 }
@@ -114,14 +115,14 @@ fun MainScreen(
             val nr = withContext(Dispatchers.IO) {
                 CellMonitor.NR_OPTS.mapNotNull { (opt, label) ->
                     try {
-                        val raw = executionManager.execMtbWithOutput(CellMonitor.nrArgs(opt))
+                        val raw = executionManager.execMtbWithOutput(CellMonitor.nrArgs(opt, slot))
                         CellMonitor.parseNrCell(raw, label)
                     } catch (_: Exception) { null }
                 }
             }
             val tx = withContext(Dispatchers.IO) {
                 try {
-                    val raw = executionManager.execMtbWithOutput(CellMonitor.txPowerArgs)
+                    val raw = executionManager.execMtbWithOutput(CellMonitor.txPowerArgs(slot))
                     CellMonitor.parseTxPower(raw)
                 } catch (_: Exception) { null }
             }
@@ -138,7 +139,7 @@ fun MainScreen(
         cellIsLogging = true
         cellJob = cellScope.launch {
             while (isActive) {
-                cellPoll()
+                cellPoll(cellSimSlot)
                 delay(CELL_REFRESH_OPTIONS[cellRefreshIdx] * 1000L)
             }
         }
@@ -289,6 +290,15 @@ fun MainScreen(
                         nrCells        = nrCells,
                         txPower        = txPower,
                         hasPolled      = cellHasPolled,
+                        simSlot        = cellSimSlot,
+                        onSimSlotChange = { slot ->
+                            cellSimSlot = slot
+                            // Restart so staleness tracker resets and we poll new slot immediately
+                            if (cellIsLogging) {
+                                cellStopLogging()
+                                cellStartLogging()
+                            }
+                        },
                         onToggleLogging = {
                             if (cellIsLogging) cellStopLogging() else cellStartLogging()
                         },
@@ -326,7 +336,7 @@ fun MainScreen(
         WindowDialog(
             show = showIncompatibleDialog,
             title = "Device not compatible",
-            summary = "The required mtb binary was not found. This app only works on Qualcomm-based Xiaomi devices with the Qualcomm modem. The app will continue, but nothing will work.",
+            summary = "Your device does not appear to be supported. Possible reasons: the mtb binary was not found on your device, it exists but is not executable, or it ran but did not return the expected fingerprint (\"goldencopy\"). This app requires a Qualcomm-based Xiaomi device with an accessible Qualcomm modem. The app will continue, but none of the modem features will work.",
             onDismissRequest = { showIncompatibleDialog = false },
             content = {
                 TextButton(

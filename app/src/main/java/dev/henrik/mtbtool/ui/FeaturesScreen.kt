@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
@@ -38,8 +39,9 @@ import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.SmallTitle
+import top.yukonga.miuix.kmp.basic.TabRow
+import top.yukonga.miuix.kmp.basic.TabRowWithContour
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -60,7 +62,7 @@ sealed class FeaturesState {
 }
 
 private const val PATH_NR5G_MODE = "/nv/item_files/modem/mmode/nr5g_disable_mode"
-private val nrModeOptions = listOf("SA/NSA (default)", "NSA only", "SA only")
+private val nrModeTabLabels = listOf("SA/NSA", "NSA only", "SA only")
 
 private sealed class NrModeState {
     data object Idle : NrModeState()
@@ -78,9 +80,8 @@ fun FeaturesScreen(
     var simSlot by remember { mutableIntStateOf(0) }
     var state by remember { mutableStateOf<FeaturesState>(FeaturesState.Idle) }
     var nrModeState by remember { mutableStateOf<NrModeState>(NrModeState.Idle) }
-    var writeJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var nrModeChanged by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    val scrollState = rememberScrollState()
 
     suspend fun readNrMode() {
         nrModeState = NrModeState.Loading
@@ -129,128 +130,63 @@ fun FeaturesScreen(
     ) {
         // ── 5G Mode selector ──────────────────────────────────────────────────
         SmallTitle("5G Mode")
-        Card {
-            Column(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
-                when (val m = nrModeState) {
-                    is NrModeState.Loading, is NrModeState.Writing -> {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = "5G Mode",
-                                style = MiuixTheme.textStyles.body1,
-                                color = MiuixTheme.colorScheme.onBackground
-                            )
-                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                        }
-                    }
-                    is NrModeState.Error -> {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp)
-                        ) {
-                            Text(
-                                text = "5G Mode",
-                                style = MiuixTheme.textStyles.body1,
-                                color = MiuixTheme.colorScheme.onBackground
-                            )
-                            Text(
-                                text = m.message,
-                                style = MiuixTheme.textStyles.body2,
-                                color = ColorErrorOrange
-                            )
-                            Spacer(Modifier.height(8.dp))
-                            Button(
-                                onClick = { scope.launch { readNrMode() } },
-                                modifier = Modifier.fillMaxWidth(),
-                                enabled = nrModeState !is NrModeState.Loading,
-                            ) { Text("Retry") }
-                        }
-                    }
-                    is NrModeState.Idle, is NrModeState.Loaded -> {
-                        val currentIndex = if (m is NrModeState.Loaded) m.index else 0
-                        val isEnabled = m is NrModeState.Loaded
-                        OverlayDropdownPreference(
-                            title = "5G Mode",
-                            items = nrModeOptions,
-                            selectedIndex = currentIndex,
-                            enabled = isEnabled,
-                            onSelectedIndexChange = { newIndex ->
-                                if (newIndex == currentIndex) return@OverlayDropdownPreference
+        val nrEnabled = nrModeState is NrModeState.Loaded
+        val nrCurrentIndex = (nrModeState as? NrModeState.Loaded)?.index ?: 0
+        TabRow(
+            modifier = Modifier.alpha(if (nrEnabled) 1f else 0.4f),
+            tabs = nrModeTabLabels,
+            selectedTabIndex = nrCurrentIndex,
+            onTabSelected = { newIndex ->
+                if (!nrEnabled || newIndex == nrCurrentIndex) return@TabRow
                 if (!executionManager.isReady) {
-                                    nrModeState = NrModeState.Error("Backend not ready")
-                                    return@OverlayDropdownPreference
-                                }
-                                nrModeState = NrModeState.Writing
-                                writeJob = scope.launch {
-                                    try {
-                                        // NV item is modem-global; always use slot 0
-                                        val raw = executionManager.execMtbWithOutput(
-                                            arrayOf("4", "5", "0", PATH_NR5G_MODE, newIndex.toString())
-                                        )
-                                        val exitLine = raw.lines().firstOrNull() ?: ""
-                                        val exitCode = exitLine.removePrefix("EXIT:").toIntOrNull() ?: -1
-                                        nrModeState = if (exitCode == 0) {
-                                            NrModeState.Loaded(newIndex)
-                                        } else {
-                                            NrModeState.Error("Write failed (exit $exitCode)")
-                                        }
-                                    } catch (e: Exception) {
-                                        nrModeState = NrModeState.Error(e.message ?: "Unknown error")
-                                    }
-                                }
-                            }
+                    nrModeState = NrModeState.Error("Backend not ready")
+                    return@TabRow
+                }
+                nrModeState = NrModeState.Writing
+                scope.launch {
+                    try {
+                        val raw = executionManager.execMtbWithOutput(
+                            arrayOf("4", "5", "0", PATH_NR5G_MODE, newIndex.toString())
                         )
+                        val exitLine = raw.lines().firstOrNull() ?: ""
+                        val exitCode = exitLine.removePrefix("EXIT:").toIntOrNull() ?: -1
+                        nrModeState = if (exitCode == 0) {
+                                nrModeChanged = true
+                                NrModeState.Loaded(newIndex)
+                            } else {
+                            NrModeState.Error("Write failed (exit $exitCode)")
+                        }
+                    } catch (e: Exception) {
+                        nrModeState = NrModeState.Error(e.message ?: "Unknown error")
                     }
                 }
-                Spacer(Modifier.height(4.dp))
-                Button(
-                    onClick = {
-                        scope.launch {
-                            executionManager.execMtb(arrayOf("11", "0"))
-                        }
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                    enabled = nrModeState is NrModeState.Loaded,
-                ) { Text("Reboot Modem (5G Mode)") }
             }
+        )
+        if (nrModeState is NrModeState.Error) {
+            Text(
+                text = (nrModeState as? NrModeState.Error)?.message ?: "",
+                style = MiuixTheme.textStyles.body2,
+                color = ColorErrorOrange,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        if (nrModeChanged) {
+            Button(
+                onClick = { scope.launch { executionManager.execMtb(arrayOf("11", "0")) } },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = nrModeState is NrModeState.Loaded,
+            ) { Text("Reboot Modem (5G Mode)") }
         }
 
         Spacer(Modifier.height(12.dp))
         SmallTitle("Disable specific modem features")
 
-        // ── SIM slot selector ─────────────────────────────────────────────────
-        Card {
-            OverlayDropdownPreference(
-                title = "SIM Slot",
-                items = simOptions,
-                selectedIndex = simSlot,
-                onSelectedIndexChange = { idx ->
-                    if (idx != simSlot) {
-                        writeJob?.cancel()
-                        simSlot = idx
-                        state = FeaturesState.Idle
-                        nrModeState = NrModeState.Idle
-                    }
-                },
-            )
-        }
-
-        Spacer(Modifier.height(12.dp))
-
-        // ── Check button ──────────────────────────────────────────────────────
+        // ── Check button (above the tab group) ────────────────────────────────
         Button(
             onClick = {
                 if (!executionManager.isReady) {
                     state = FeaturesState.CheckError("Backend not ready")
-                    nrModeState = NrModeState.Error("Backend not ready")
                     return@Button
                 }
                 state = FeaturesState.Checking
@@ -272,16 +208,33 @@ fun FeaturesScreen(
             modifier = Modifier.fillMaxWidth(),
             enabled = state !is FeaturesState.Checking,
             colors = ButtonDefaults.buttonColorsPrimary()
-        ) { Text("Check") }
+        ) { Text("Read available features") }
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(12.dp))
 
-        // ── State area ────────────────────────────────────────────────────────
-        when (val s = state) {
-            is FeaturesState.Idle, is FeaturesState.Checking -> {
-                Column(
-                    modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(scrollState)
-                ) {
+        // ── SIM tab group ─────────────────────────────────────────────────────
+        TabRowWithContour(
+            tabs = simOptions,
+            selectedTabIndex = simSlot,
+            onTabSelected = { idx ->
+                if (idx != simSlot) {
+                    simSlot = idx
+                    state = FeaturesState.Idle
+                }
+            },
+        )
+
+        Spacer(Modifier.height(8.dp))
+
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            when (val s = state) {
+                is FeaturesState.Idle, is FeaturesState.Checking -> {
                     if (s is FeaturesState.Checking) CircularProgressIndicator()
                     Card {
                         ALL_FEATURES.forEach { feature ->
@@ -293,34 +246,22 @@ fun FeaturesScreen(
                             )
                         }
                     }
-                    Spacer(Modifier.height(contentPadding.calculateBottomPadding()))
                 }
-            }
-            is FeaturesState.CheckError -> {
-                Text(
-                    text = s.message,
-                    style = MiuixTheme.textStyles.body2,
-                    color = ColorErrorRed
-                )
-                Spacer(Modifier.height(contentPadding.calculateBottomPadding()))
-            }
-            is FeaturesState.Checked -> {
-                val anyWriting = s.results.values.any {
-                    it is FeatureStatus.Writing || it is FeatureStatus.Restoring
+                is FeaturesState.CheckError -> {
+                    Text(
+                        text = s.message,
+                        style = MiuixTheme.textStyles.body2,
+                        color = ColorErrorRed
+                    )
                 }
-                // Restore is available when at least one feature has original bytes stored
-                // and at least one of those features is currently disabled (i.e. was changed)
-                val canRestore = !anyWriting && s.originalBytes.any { (feature, _) ->
-                    s.results[feature] is FeatureStatus.AlreadyDisabled
-                }
+                is FeaturesState.Checked -> {
+                    val anyWriting = s.results.values.any {
+                        it is FeatureStatus.Writing || it is FeatureStatus.Restoring
+                    }
+                    val canRestore = !anyWriting && s.originalBytes.any { (feature, _) ->
+                        s.results[feature] is FeatureStatus.AlreadyDisabled
+                    }
 
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .verticalScroll(scrollState),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
                     Card {
                         ALL_FEATURES.forEach { feature ->
                             val status = s.results[feature] ?: FeatureStatus.ReadError("No result")
@@ -344,14 +285,11 @@ fun FeaturesScreen(
                         }
                     }
 
-                    // ── Restore all button ─────────────────────────────────────
                     if (s.originalBytes.isNotEmpty()) {
                         Button(
                             onClick = {
                                 if (!executionManager.isReady) return@Button
-                                // Mark all restorable features as Restoring
                                 val updated = s.results.toMutableMap()
-                                // Mark only AlreadyDisabled features as Restoring (CanDisable ones are unmodified)
                                 s.originalBytes.keys.forEach { feature ->
                                     if (updated[feature] is FeatureStatus.AlreadyDisabled) {
                                         updated[feature] = FeatureStatus.Restoring
@@ -365,7 +303,6 @@ fun FeaturesScreen(
                                         val current = (state as? FeaturesState.Checked)?.results?.toMutableMap()
                                             ?: return@launch
                                         current[feature] = if (error == null) {
-                                            // Re-evaluate disabled status from original bytes
                                             if (feature.isDisabled(bytes)) FeatureStatus.AlreadyDisabled
                                             else FeatureStatus.CanDisable
                                         } else {
@@ -388,10 +325,11 @@ fun FeaturesScreen(
                         },
                         modifier = Modifier.fillMaxWidth(),
                         enabled = !anyWriting,
+                        colors = ButtonDefaults.buttonColorsPrimary()
                     ) { Text("Reboot Modem") }
-                    Spacer(Modifier.height(contentPadding.calculateBottomPadding()))
                 }
             }
+            Spacer(Modifier.height(contentPadding.calculateBottomPadding()))
         }
     }
 }
@@ -440,13 +378,13 @@ private fun FeatureRow(
             }
         }
         is FeatureStatus.CanDisable, is FeatureStatus.AlreadyDisabled -> {
-            val isChecked = status is FeatureStatus.CanDisable
+            val isChecked = status is FeatureStatus.AlreadyDisabled
             val isEnabled = status is FeatureStatus.CanDisable
             SwitchPreference(
                 title = feature.label,
                 checked = isChecked,
                 onCheckedChange = { nowChecked ->
-                    if (!nowChecked && status is FeatureStatus.CanDisable) {
+                    if (nowChecked && status is FeatureStatus.CanDisable) {
                         onDisable()
                     }
                 },
