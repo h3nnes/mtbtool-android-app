@@ -1,19 +1,31 @@
 package dev.henrik.mtbtool.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import dev.henrik.mtbtool.LteCellData
 import dev.henrik.mtbtool.NrCellData
@@ -26,6 +38,11 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 internal val CELL_REFRESH_OPTIONS = listOf(1, 2, 5, 10, 30) // seconds
 internal val CELL_REFRESH_LABELS  = listOf("1s", "2s", "5s", "10s", "30s")
+
+private fun signalColor(fraction: Float): Color {
+    val clamped = fraction.coerceIn(0f, 1f)
+    return lerp(Color(0xFFb50d0dL), Color(0xFF2d8031L), clamped)
+}
 
 @Composable
 fun CellsScreen(
@@ -107,10 +124,10 @@ fun CellsScreen(
                                      color = MiuixTheme.colorScheme.onBackground)
                                 CellDataRow("EARFCN",     cell.earfcn.toString())
                                 CellDataRow("PCI",        cell.pci.toString())
-                                CellDataRow("RSRP (dBm)", "%.1f".format(cell.rsrp))
-                                CellDataRow("RSRQ (dB)",  "%.1f".format(cell.rsrq))
-                                CellDataRow("RSSI (dBm)", "%.1f".format(cell.rssi))
-                                CellDataRow("SNR (dB)",   "%.1f".format(cell.snr))
+                                SignalBar("RSRP", cell.rsrp, "dBm", -125f, -90f)
+                                SignalBar("RSRQ", cell.rsrq, "dB",  -20f,  -3f)
+                                SignalBar("RSSI", cell.rssi, "dBm", -110f, -65f)
+                                SignalBar("SNR",  cell.snr,  "dB",  -5f,    20f)
                             }
                         }
                     }
@@ -129,8 +146,8 @@ fun CellsScreen(
                                 if (index > 0) Spacer(Modifier.height(4.dp))
                                 Text(cell.label, style = MiuixTheme.textStyles.title4,
                                      color = MiuixTheme.colorScheme.onBackground)
-                                CellDataRow("RSRP (dBm)", "%.1f".format(cell.rsrp))
-                                CellDataRow("RSRQ (dB)",  "%.1f".format(cell.rsrq))
+                                SignalBar("RSRP", cell.rsrp, "dBm", -130f, -80f)
+                                SignalBar("RSRQ", cell.rsrq, "dB",  -20f,  -3f)
                             }
                         }
                     }
@@ -142,7 +159,7 @@ fun CellsScreen(
                     Card {
                         Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                                verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            CellDataRow("Tx Power (dBm)", tx.toString())
+                            SignalBar("Tx Power", tx.toFloat(), "dBm", 0f, 36f, invertColor = true)
                             if (tx > 36) {
                                 Text(
                                     text  = "Values above 36 dBm are abnormal",
@@ -172,5 +189,61 @@ private fun CellDataRow(label: String, value: String) {
              color = MiuixTheme.colorScheme.onSurfaceVariantActions)
         Text(text = value, style = MiuixTheme.textStyles.body1,
              color = MiuixTheme.colorScheme.onBackground)
+    }
+}
+
+@Composable
+private fun SignalBar(
+    label: String,
+    value: Float,
+    unit: String,
+    min: Float,
+    max: Float,
+    invertColor: Boolean = false
+) {
+    val fraction = ((value - min) / (max - min)).coerceIn(0f, 1f)
+    val colorFraction = if (invertColor) 1f - fraction else fraction
+    val barColor = signalColor(colorFraction)
+    val fillFraction = fraction.coerceAtLeast(0.05f)
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text     = label,
+            style    = MiuixTheme.textStyles.body1,
+            color    = MiuixTheme.colorScheme.onSurfaceVariantActions,
+            modifier = Modifier.weight(0.6f)
+        )
+        Box(
+            modifier = Modifier
+                .weight(0.4f)
+                .height(24.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(barColor.copy(alpha = 0.25f))
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(fillFraction)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(topStart = 4.dp, bottomStart = 4.dp))
+                    .background(barColor)
+            )
+            Text(
+                text      = "%.1f %s".format(value, unit),
+                style     = MiuixTheme.textStyles.body2.merge(
+                    TextStyle(shadow = Shadow(color = Color(0x88000000L), offset = Offset(0f, 2f), blurRadius = 2f))
+                ),
+                color     = Color.White,
+                textAlign = TextAlign.Center,
+                modifier  = Modifier
+                    .align(Alignment.Center)
+                    .fillMaxWidth()
+            )
+        }
     }
 }
