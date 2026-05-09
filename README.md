@@ -14,8 +14,9 @@ It wraps around the mtb binary located in `/vendor/bin` directory. If this binar
 </p>
 <p align="center">
   <img src="https://github.com/user-attachments/assets/cc6b48e9-5736-4b82-b60e-c8afb652b242" width="48%" alt="Screenshot 3"/>
-  <img src="https://github.com/user-attachments/assets/febfcfcb-c5b0-41c0-ab43-6aecd5c978e5" width="48%" alt="Screenshot 4"/>
+  <img src="https://github.com/user-attachments/assets/01d316b2-cb13-4d33-8926-cd244b0d6149" width="48%" alt="Screenshot 4"/>
 </p>
+
 
 ## What it does
 
