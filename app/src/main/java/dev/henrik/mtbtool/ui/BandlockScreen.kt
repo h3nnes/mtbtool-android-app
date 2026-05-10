@@ -1,6 +1,5 @@
 package dev.henrik.mtbtool.ui
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -42,12 +41,23 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.Back
+import top.yukonga.miuix.kmp.icon.extended.Close
+import top.yukonga.miuix.kmp.icon.extended.Ok
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.window.WindowDialog
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.unit.Velocity
+import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
+import top.yukonga.miuix.kmp.basic.SmallTitle
+import top.yukonga.miuix.kmp.basic.TopAppBar
+import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
+import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 
 // ── State ──────────────────────────────────────────────────────────────────────
 
@@ -217,318 +227,330 @@ fun BandlockScreen(
         }
     }
 
-    if (showConfig) {
-        BandConfigScreen(
-            dataStore = dataStore,
-            onSaved = { saved ->
-                supportedLte   = saved.lte
-                supportedNrNsa = saved.nrNsa
-                supportedNrSa  = saved.nr
-                bandSource     = BandSource.Manual
-                showConfig     = false
-                scope.launch {
-                    readCurrentPrefs(saved.lte, saved.nrNsa, saved.nr)
-                    state = BandlockState.Ready
-                }
-            },
-            onBack = { showConfig = false },
-            contentPadding = contentPadding
-        )
-    } else {
-
+    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     val isBusy = state is BandlockState.Detecting || state is BandlockState.Applying
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(scrollState)
-            .padding(
-                top    = contentPadding.calculateTopPadding() + 16.dp,
-                start  = 16.dp,
-                end    = 16.dp,
-                bottom = 0.dp
-            ),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        // ── Detect button ──────────────────────────────────────────────────────
-        Button(
-            onClick  = { runDetect() },
-            modifier = Modifier.fillMaxWidth(),
-            enabled  = !isBusy,
-            colors   = ButtonDefaults.buttonColorsPrimary()
-        ) {
-            if (state is BandlockState.Detecting) CircularProgressIndicator()
-            else Text(if (state is BandlockState.Idle) "Detect Supported Bands" else "Re-detect Supported Bands")
-        }
+    Column(modifier = Modifier.fillMaxSize()) {
+        TopAppBar(
+            title = "Bandlock",
+            scrollBehavior = scrollBehavior,
+            defaultWindowInsetsPadding = true,
+            bottomContent = {
+                Column(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    SmallTitle("Detect bands")
+                    Button(
+                        onClick  = { runDetect() },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled  = !isBusy,
+                        colors   = ButtonDefaults.buttonColorsPrimary()
+                    ) {
+                        if (state is BandlockState.Detecting) CircularProgressIndicator()
+                        else Text(if (state is BandlockState.Idle) "Detect Supported Bands" else "Re-detect Supported Bands")
+                    }
 
-        // Band source caption — shown once bands are available
-        if (bandSource != null) {
-            Text(
-                text  = when (bandSource) {
-                    BandSource.Diag   -> "Source: Detected from hardware"
-                    BandSource.Manual -> "Source: Manually configured"
-                    null              -> ""
-                },
-                style = MiuixTheme.textStyles.body2,
-                color = MiuixTheme.colorScheme.onSurfaceVariantActions
-            )
-            if (bandSource == BandSource.Diag) {
+                    // Band source caption — shown once bands are available
+                    if (bandSource != null) {
+                        Text(
+                            text  = when (bandSource) {
+                                BandSource.Diag   -> "Source: Detected from hardware"
+                                BandSource.Manual -> "Source: Manually configured"
+                                null              -> ""
+                            },
+                            style = MiuixTheme.textStyles.body2,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantActions
+                        )
+                        if (bandSource == BandSource.Diag) {
+                            Text(
+                                text  = "Band detection uses automatic offset guessing and may not be fully accurate on all devices.",
+                                style = MiuixTheme.textStyles.body2,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantActions
+                            )
+                        }
+                    }
+
+                    if (state is BandlockState.Idle) {
+                        Text(
+                            text  = "Reads hardware-supported bands directly from the modem via DIAG, then shows which are currently enabled.",
+                            style = MiuixTheme.textStyles.body2,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantActions
+                        )
+                    }
+                }
+            }
+        )
+
+        // ── Pinned section (does not scroll) ──────────────────────────────────
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .nestedScroll(scrollBehavior.nestedScrollConnection)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // Always-visible manual config entry
+            Card {
+                ArrowPreference(
+                    title   = "Configure bands manually",
+                    summary = "Set supported bands for your device",
+                    onClick = { if (!isBusy) showConfig = true }
+                )
+            }
+
+            // ── Error / info messages ──────────────────────────────────────────
+            detectInfoMessage?.let {
                 Text(
-                    text  = "Band detection uses automatic offset guessing and may not be fully accurate on all devices.",
+                    text  = it,
                     style = MiuixTheme.textStyles.body2,
                     color = MiuixTheme.colorScheme.onSurfaceVariantActions
                 )
             }
-        }
-
-        if (state is BandlockState.Idle) {
-            Text(
-                text  = "Reads hardware-supported bands directly from the modem via DIAG, then shows which are currently enabled.",
-                style = MiuixTheme.textStyles.body2,
-                color = MiuixTheme.colorScheme.onSurfaceVariantActions
-            )
-        }
-
-        // Always-visible manual config entry
-        Card {
-            ArrowPreference(
-                title   = "Configure bands manually",
-                summary = "Set supported bands for your device",
-                onClick = { if (!isBusy) showConfig = true }
-            )
-        }
-
-        // ── Error / info messages ──────────────────────────────────────────────
-        detectInfoMessage?.let {
-            Text(
-                text  = it,
-                style = MiuixTheme.textStyles.body2,
-                color = MiuixTheme.colorScheme.onSurfaceVariantActions
-            )
-        }
-        when (val s = state) {
-            is BandlockState.DetectError -> Text(
-                text  = s.message,
-                style = MiuixTheme.textStyles.body2,
-                color = MiuixTheme.colorScheme.onSurfaceVariantActions
-            )
-            is BandlockState.ApplyError -> Text(
-                text  = "Apply error: ${s.message}",
-                style = MiuixTheme.textStyles.body2,
-                color = ColorError
-            )
-            else -> {}
-        }
-
-        // ── Band checkboxes ────────────────────────────────────────────────────
-        // Shown whenever we have supported band data (Ready, Applying, ApplyError)
-        val showBands = supportedLte.isNotEmpty() || supportedNrNsa.isNotEmpty() || supportedNrSa.isNotEmpty()
-        val checkboxEnabled = (state is BandlockState.Ready || state is BandlockState.ApplyError) && !isBusy
-
-        if (showBands) {
-            val lteBands   = supportedLte.sorted()
-            val nrNsaBands = supportedNrNsa.sorted()
-            val nrSaBands  = supportedNrSa.sorted()
-
-            // ── Band presets ───────────────────────────────────────────────────
-            fun allEntry(label: String, selectAll: Boolean, map: androidx.compose.runtime.snapshots.SnapshotStateMap<Int, Boolean>) =
-                DropdownItem(
-                    text     = label,
-                    selected = false,
-                    onClick  = { map.keys.forEach { map[it] = selectAll } }
+            when (val s = state) {
+                is BandlockState.DetectError -> Text(
+                    text  = s.message,
+                    style = MiuixTheme.textStyles.body2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantActions
                 )
-
-            val presetEntries = listOf(
-                DropdownEntry(items = listOf(
-                    DropdownItem(text = "Select all bands",   selected = false, onClick = {
-                        lteChecked.keys.forEach   { lteChecked[it]   = true }
-                        nrNsaChecked.keys.forEach { nrNsaChecked[it] = true }
-                        nrSaChecked.keys.forEach  { nrSaChecked[it]  = true }
-                    }),
-                    DropdownItem(text = "Unselect all bands", selected = false, onClick = {
-                        lteChecked.keys.forEach   { lteChecked[it]   = false }
-                        nrNsaChecked.keys.forEach { nrNsaChecked[it] = false }
-                        nrSaChecked.keys.forEach  { nrSaChecked[it]  = false }
-                    }),
-                )),
-                DropdownEntry(items = listOf(
-                    allEntry("Select all 4G bands",   true,  lteChecked),
-                    allEntry("Unselect all 4G bands", false, lteChecked),
-                )),
-                DropdownEntry(items = listOf(
-                    allEntry("Select all 5G NSA bands",   true,  nrNsaChecked),
-                    allEntry("Unselect all 5G NSA bands", false, nrNsaChecked),
-                )),
-                DropdownEntry(items = listOf(
-                    allEntry("Select all 5G SA bands",   true,  nrSaChecked),
-                    allEntry("Unselect all 5G SA bands", false, nrSaChecked),
-                )),
-            )
-
-            Card {
-                OverlayDropdownPreference(
-                    title              = "Band Presets",
-                    summary            = "Quickly select or unselect groups of bands",
-                    entries            = presetEntries,
-                    collapseOnSelection = true,
-                    enabled            = checkboxEnabled,
-                )
-            }
-
-            if (lteBands.isNotEmpty()) {
-                Text(
-                    text     = "4G Bands",
-                    style    = MiuixTheme.textStyles.title4,
-                    color    = MiuixTheme.colorScheme.onBackground,
-                    modifier = Modifier.padding(top = 4.dp)
-                )
-                Card {
-                    BandCheckboxGrid(
-                        bands           = lteBands,
-                        checked         = lteChecked,
-                        prefix          = "B",
-                        enabled         = checkboxEnabled,
-                        onCheckedChange = { band, checked -> lteChecked[band] = checked }
-                    )
-                }
-            }
-
-            if (nrNsaBands.isNotEmpty()) {
-                Text(
-                    text  = "5G NSA Bands",
-                    style = MiuixTheme.textStyles.title4,
-                    color = MiuixTheme.colorScheme.onBackground
-                )
-                Card {
-                    BandCheckboxGrid(
-                        bands           = nrNsaBands,
-                        checked         = nrNsaChecked,
-                        prefix          = "N",
-                        enabled         = checkboxEnabled,
-                        onCheckedChange = { band, checked -> nrNsaChecked[band] = checked }
-                    )
-                }
-            }
-
-            if (nrSaBands.isNotEmpty()) {
-                Text(
-                    text  = "5G SA Bands",
-                    style = MiuixTheme.textStyles.title4,
-                    color = MiuixTheme.colorScheme.onBackground
-                )
-                Card {
-                    BandCheckboxGrid(
-                        bands           = nrSaBands,
-                        checked         = nrSaChecked,
-                        prefix          = "N",
-                        enabled         = checkboxEnabled,
-                        onCheckedChange = { band, checked -> nrSaChecked[band] = checked }
-                    )
-                }
-            }
-
-            // ── Apply button ───────────────────────────────────────────────────
-            if (state is BandlockState.Ready ||
-                state is BandlockState.Applying ||
-                state is BandlockState.ApplyError
-            ) {
-                Button(
-                    onClick = {
-                        if (!executionManager.isReady) {
-                            state = BandlockState.ApplyError("Backend not ready")
-                            return@Button
-                        }
-                        state = BandlockState.Applying
-                        scope.launch {
-                            try {
-                                val chosenLte   = lteChecked.filterValues  { it }.keys
-                                val chosenNrNsa = nrNsaChecked.filterValues { it }.keys
-                                val chosenNrSa  = nrSaChecked.filterValues  { it }.keys
-
-                                val ltePrimaryBytes = BandlockManager.buildLtePrimary(chosenLte)
-                                executionManager.execMtbWithOutput(
-                                    arrayOf("4", "5", "0", BandlockManager.PATH_LTE_PRIMARY) +
-                                    ltePrimaryBytes.map { it.toString() }.toTypedArray()
-                                )
-
-                                val lteExtBytes = BandlockManager.buildLteExtension(chosenLte)
-                                executionManager.execMtbWithOutput(
-                                    arrayOf("4", "5", "0", BandlockManager.PATH_LTE_EXTENSION) +
-                                    lteExtBytes.map { it.toString() }.toTypedArray()
-                                )
-
-                                val nrNsaBytes = BandlockManager.buildNrNsa(chosenNrNsa)
-                                executionManager.execMtbWithOutput(
-                                    arrayOf("4", "5", "0", BandlockManager.PATH_NR_NSA) +
-                                    nrNsaBytes.map { it.toString() }.toTypedArray()
-                                )
-
-                                val nrSaBytes = BandlockManager.buildNr(chosenNrSa)
-                                executionManager.execMtbWithOutput(
-                                    arrayOf("4", "5", "0", BandlockManager.PATH_NR) +
-                                    nrSaBytes.map { it.toString() }.toTypedArray()
-                                )
-
-                                // Re-read NV prefs to reflect what was actually written
-                                readCurrentPrefs(supportedLte, supportedNrNsa, supportedNrSa)
-                                showReboot = true
-                                rebootError = null
-                                state = BandlockState.Ready
-                            } catch (e: Exception) {
-                                state = BandlockState.ApplyError(e.message ?: "Unknown error")
-                            }
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled  = state is BandlockState.Ready || state is BandlockState.ApplyError,
-                    colors   = ButtonDefaults.buttonColorsPrimary()
-                ) {
-                    if (state is BandlockState.Applying) CircularProgressIndicator()
-                    else Text("Apply Bandlock")
-                }
-            }
-        }
-
-        // ── Reboot section (shown after a successful apply until next re-detect) ──
-        if (showReboot) {
-            Text(
-                text  = "Bandlock applied. Reboot the modem to activate.",
-                style = MiuixTheme.textStyles.body2,
-                color = MiuixTheme.colorScheme.onBackground
-            )
-            rebootError?.let { err ->
-                Text(
-                    text  = "Reboot error: $err",
+                is BandlockState.ApplyError -> Text(
+                    text  = "Apply error: ${s.message}",
                     style = MiuixTheme.textStyles.body2,
                     color = ColorError
                 )
+                else -> {}
             }
-            Button(
-                onClick = {
-                    if (rebootInFlight) return@Button
-                    rebootInFlight = true
-                    rebootError    = null
-                    scope.launch {
-                        try {
-                            executionManager.execMtb(arrayOf("11", "0"))
-                        } catch (e: Exception) {
-                            rebootError = e.message ?: "Unknown error"
-                        } finally {
-                            rebootInFlight = false
+
+            // ── Band checkboxes ────────────────────────────────────────────────
+            val showBands = supportedLte.isNotEmpty() || supportedNrNsa.isNotEmpty() || supportedNrSa.isNotEmpty()
+            val checkboxEnabled = (state is BandlockState.Ready || state is BandlockState.ApplyError) && !isBusy
+
+            if (showBands) {
+                val lteBands   = supportedLte.sorted()
+                val nrNsaBands = supportedNrNsa.sorted()
+                val nrSaBands  = supportedNrSa.sorted()
+
+                fun allEntry(label: String, selectAll: Boolean, map: androidx.compose.runtime.snapshots.SnapshotStateMap<Int, Boolean>) =
+                    DropdownItem(
+                        text     = label,
+                        selected = false,
+                        onClick  = { map.keys.forEach { map[it] = selectAll } }
+                    )
+
+                val presetEntries = listOf(
+                    DropdownEntry(items = listOf(
+                        DropdownItem(text = "Select all bands",   selected = false, onClick = {
+                            lteChecked.keys.forEach   { lteChecked[it]   = true }
+                            nrNsaChecked.keys.forEach { nrNsaChecked[it] = true }
+                            nrSaChecked.keys.forEach  { nrSaChecked[it]  = true }
+                        }),
+                        DropdownItem(text = "Unselect all bands", selected = false, onClick = {
+                            lteChecked.keys.forEach   { lteChecked[it]   = false }
+                            nrNsaChecked.keys.forEach { nrNsaChecked[it] = false }
+                            nrSaChecked.keys.forEach  { nrSaChecked[it]  = false }
+                        }),
+                    )),
+                    DropdownEntry(items = listOf(
+                        allEntry("Select all 4G bands",   true,  lteChecked),
+                        allEntry("Unselect all 4G bands", false, lteChecked),
+                    )),
+                    DropdownEntry(items = listOf(
+                        allEntry("Select all 5G NSA bands",   true,  nrNsaChecked),
+                        allEntry("Unselect all 5G NSA bands", false, nrNsaChecked),
+                    )),
+                    DropdownEntry(items = listOf(
+                        allEntry("Select all 5G SA bands",   true,  nrSaChecked),
+                        allEntry("Unselect all 5G SA bands", false, nrSaChecked),
+                    )),
+                )
+
+                // Band Presets — pinned above the scrollable bands
+                Card {
+                    OverlayDropdownPreference(
+                        title              = "Band Presets",
+                        summary            = "Quickly select or unselect groups of bands",
+                        entries            = presetEntries,
+                        collapseOnSelection = true,
+                        enabled            = checkboxEnabled,
+                    )
+                }
+
+                // ── Scrollable bands + apply + reboot ─────────────────────────
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .verticalScroll(scrollState)
+                        .padding(bottom = contentPadding.calculateBottomPadding()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    if (lteBands.isNotEmpty()) {
+                        Text(
+                            text     = "4G Bands",
+                            style    = MiuixTheme.textStyles.title4,
+                            color    = MiuixTheme.colorScheme.onBackground,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
+                        Card {
+                            BandCheckboxGrid(
+                                bands           = lteBands,
+                                checked         = lteChecked,
+                                prefix          = "B",
+                                enabled         = checkboxEnabled,
+                                onCheckedChange = { band, checked -> lteChecked[band] = checked }
+                            )
                         }
                     }
-                },
-                modifier = Modifier.fillMaxWidth(),
-                enabled  = !rebootInFlight
-            ) {
-                if (rebootInFlight) CircularProgressIndicator()
-                else Text("Reboot Modem")
+
+                    if (nrNsaBands.isNotEmpty()) {
+                        Text(
+                            text  = "5G NSA Bands",
+                            style = MiuixTheme.textStyles.title4,
+                            color = MiuixTheme.colorScheme.onBackground
+                        )
+                        Card {
+                            BandCheckboxGrid(
+                                bands           = nrNsaBands,
+                                checked         = nrNsaChecked,
+                                prefix          = "N",
+                                enabled         = checkboxEnabled,
+                                onCheckedChange = { band, checked -> nrNsaChecked[band] = checked }
+                            )
+                        }
+                    }
+
+                    if (nrSaBands.isNotEmpty()) {
+                        Text(
+                            text  = "5G SA Bands",
+                            style = MiuixTheme.textStyles.title4,
+                            color = MiuixTheme.colorScheme.onBackground
+                        )
+                        Card {
+                            BandCheckboxGrid(
+                                bands           = nrSaBands,
+                                checked         = nrSaChecked,
+                                prefix          = "N",
+                                enabled         = checkboxEnabled,
+                                onCheckedChange = { band, checked -> nrSaChecked[band] = checked }
+                            )
+                        }
+                    }
+
+                    if (state is BandlockState.Ready ||
+                        state is BandlockState.Applying ||
+                        state is BandlockState.ApplyError
+                    ) {
+                        Button(
+                            onClick = {
+                                if (!executionManager.isReady) {
+                                    state = BandlockState.ApplyError("Backend not ready")
+                                    return@Button
+                                }
+                                state = BandlockState.Applying
+                                scope.launch {
+                                    try {
+                                        val chosenLte   = lteChecked.filterValues  { it }.keys
+                                        val chosenNrNsa = nrNsaChecked.filterValues { it }.keys
+                                        val chosenNrSa  = nrSaChecked.filterValues  { it }.keys
+
+                                        val ltePrimaryBytes = BandlockManager.buildLtePrimary(chosenLte)
+                                        executionManager.execMtbWithOutput(
+                                            arrayOf("4", "5", "0", BandlockManager.PATH_LTE_PRIMARY) +
+                                            ltePrimaryBytes.map { it.toString() }.toTypedArray()
+                                        )
+
+                                        val lteExtBytes = BandlockManager.buildLteExtension(chosenLte)
+                                        executionManager.execMtbWithOutput(
+                                            arrayOf("4", "5", "0", BandlockManager.PATH_LTE_EXTENSION) +
+                                            lteExtBytes.map { it.toString() }.toTypedArray()
+                                        )
+
+                                        val nrNsaBytes = BandlockManager.buildNrNsa(chosenNrNsa)
+                                        executionManager.execMtbWithOutput(
+                                            arrayOf("4", "5", "0", BandlockManager.PATH_NR_NSA) +
+                                            nrNsaBytes.map { it.toString() }.toTypedArray()
+                                        )
+
+                                        val nrSaBytes = BandlockManager.buildNr(chosenNrSa)
+                                        executionManager.execMtbWithOutput(
+                                            arrayOf("4", "5", "0", BandlockManager.PATH_NR) +
+                                            nrSaBytes.map { it.toString() }.toTypedArray()
+                                        )
+
+                                        readCurrentPrefs(supportedLte, supportedNrNsa, supportedNrSa)
+                                        showReboot = true
+                                        rebootError = null
+                                        state = BandlockState.Ready
+                                    } catch (e: Exception) {
+                                        state = BandlockState.ApplyError(e.message ?: "Unknown error")
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled  = state is BandlockState.Ready || state is BandlockState.ApplyError,
+                            colors   = ButtonDefaults.buttonColorsPrimary()
+                        ) {
+                            if (state is BandlockState.Applying) CircularProgressIndicator()
+                            else Text("Apply Bandlock")
+                        }
+                    }
+
+                    // ── Reboot section ─────────────────────────────────────────
+                    if (showReboot) {
+                        Text(
+                            text  = "Bandlock applied. Reboot the modem to activate.",
+                            style = MiuixTheme.textStyles.body2,
+                            color = MiuixTheme.colorScheme.onBackground
+                        )
+                        rebootError?.let { err ->
+                            Text(
+                                text  = "Reboot error: $err",
+                                style = MiuixTheme.textStyles.body2,
+                                color = ColorError
+                            )
+                        }
+                        Button(
+                            onClick = {
+                                if (rebootInFlight) return@Button
+                                rebootInFlight = true
+                                rebootError    = null
+                                scope.launch {
+                                    try {
+                                        executionManager.execMtb(arrayOf("11", "0"))
+                                    } catch (e: Exception) {
+                                        rebootError = e.message ?: "Unknown error"
+                                    } finally {
+                                        rebootInFlight = false
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled  = !rebootInFlight
+                        ) {
+                            if (rebootInFlight) CircularProgressIndicator()
+                            else Text("Reboot Modem")
+                        }
+                    }
+                }
             }
         }
-
-        Spacer(Modifier.height(contentPadding.calculateBottomPadding()))
     }
-    } // end else (showConfig == false)
+
+    BandConfigBottomSheet(
+        show      = showConfig,
+        dataStore = dataStore,
+        onSaved   = { saved ->
+            supportedLte   = saved.lte
+            supportedNrNsa = saved.nrNsa
+            supportedNrSa  = saved.nr
+            bandSource     = BandSource.Manual
+            scope.launch {
+                readCurrentPrefs(saved.lte, saved.nrNsa, saved.nr)
+                state = BandlockState.Ready
+            }
+        },
+        onDismiss = { showConfig = false },
+    )
 
     WindowDialog(
         show             = showDetectFailedDialog,
@@ -631,80 +653,141 @@ private fun BandCheckboxGrid(
     }
 }
 
-// ── BandConfigScreen ───────────────────────────────────────────────────────────
+// ── BandConfigBottomSheet ──────────────────────────────────────────────────────
 
 @Composable
-private fun BandConfigScreen(
+private fun BandConfigBottomSheet(
+    show: Boolean,
     dataStore: DataStore<Preferences>,
     onSaved: (SavedBands) -> Unit,
-    onBack: () -> Unit,
-    contentPadding: PaddingValues = PaddingValues()
+    onDismiss: () -> Unit,
 ) {
-    var loaded by remember { mutableStateOf(false) }
-    var saveError by remember { mutableStateOf<String?>(null) }
-
     val lteChecked   = remember { mutableStateMapOf<Int, Boolean>() }
     val nrNsaChecked = remember { mutableStateMapOf<Int, Boolean>() }
     val nrChecked    = remember { mutableStateMapOf<Int, Boolean>() }
+    var saveError    by remember { mutableStateOf<String?>(null) }
     val scope        = rememberCoroutineScope()
-    val scrollState  = rememberScrollState()
 
-    BackHandler(enabled = true, onBack = onBack)
-
-    LaunchedEffect(Unit) {
-        val saved = BandlockManager.loadSavedBands(dataStore)
-        BandlockManager.ALL_LTE_BANDS.forEach { band ->
-            lteChecked[band] = band in saved.lte
+    // Load saved bands whenever the sheet opens
+    LaunchedEffect(show) {
+        if (show) {
+            saveError = null
+            val saved = BandlockManager.loadSavedBands(dataStore)
+            BandlockManager.ALL_LTE_BANDS.forEach { band ->
+                lteChecked[band] = band in saved.lte
+            }
+            BandlockManager.ALL_NR_BANDS.forEach { band ->
+                nrNsaChecked[band] = band in saved.nrNsa
+            }
+            BandlockManager.ALL_NR_BANDS.forEach { band ->
+                nrChecked[band] = band in saved.nr
+            }
         }
-        BandlockManager.ALL_NR_BANDS.forEach { band ->
-            nrNsaChecked[band] = band in saved.nrNsa
-        }
-        BandlockManager.ALL_NR_BANDS.forEach { band ->
-            nrChecked[band] = band in saved.nr
-        }
-        loaded = true
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(
-                top   = contentPadding.calculateTopPadding() + 8.dp,
-                start = 16.dp,
-                end   = 16.dp
-            )
-    ) {
-        // ── Fixed header — does not scroll ────────────────────────────────────
-        Row(
-            modifier          = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = onBack) {
+    val sheetScrollState = rememberScrollState()
+
+    // Prevent the sheet from being dragged down / dismissed while the inner scrollable
+    // content is being scrolled upward.
+    //
+    // Problem: when the user drags upward and the inner verticalScroll reaches the top
+    // mid-gesture, the remaining delta leaks as available.y > 0 to the sheet's
+    // NestedScrollConnection which then drags the sheet down and may dismiss it.
+    //
+    // Strategy:
+    //   • onPreScroll (upward, i.e. delta < 0): record whether the content was scrolled
+    //     at all during this gesture by checking if the scroll position was > 0.
+    //   • onPostScroll: always consume upward available (available.y > 0) so the sheet
+    //     never gets "leftover" drag from a content-scroll gesture.
+    //   • onPostFling: only consume if the content actually scrolled (gestureHadScroll).
+    //     If the user starts a fresh upward fling from the very top (no content to
+    //     scroll), we let it through so the sheet can still be flung away.
+    val consumeUpwardWhenScrolled = remember(sheetScrollState) {
+        object : NestedScrollConnection {
+            // True when the current gesture scrolled content (scroll position was > 0
+            // at some point during the gesture).
+            var gestureHadScroll = false
+
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (available.y < 0f && sheetScrollState.value > 0) {
+                    // Upward drag while not at top — mark that this gesture scrolled content.
+                    gestureHadScroll = true
+                }
+                if (available.y > 0f && source == NestedScrollSource.UserInput) {
+                    // Downward drag — reset flag (new gesture direction).
+                    gestureHadScroll = false
+                }
+                return Offset.Zero
+            }
+
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource,
+            ): Offset {
+                // Consume all upward leftover scroll so the sheet never drags down
+                // mid-content-scroll (including the transition moment when scroll
+                // position hits 0 within a single drag event).
+                return if (available.y > 0f) available else Offset.Zero
+            }
+
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                val hadScroll = gestureHadScroll
+                gestureHadScroll = false // reset for next gesture
+                // If this fling scrolled content, consume any leftover upward velocity
+                // so the sheet isn't dismissed by residual fling from a scroll gesture.
+                return if (available.y > 0f && hadScroll) available else Velocity.Zero
+            }
+        }
+    }
+
+    OverlayBottomSheet(
+        show             = show,
+        title            = "Configure bands manually",
+        onDismissRequest = onDismiss,
+        startAction      = {
+            IconButton(onClick = onDismiss) {
                 Icon(
-                    imageVector        = MiuixIcons.Back,
-                    contentDescription = "Back",
+                    imageVector        = MiuixIcons.Close,
+                    contentDescription = "Discard",
                     tint               = MiuixTheme.colorScheme.onBackground
                 )
             }
-            Text(
-                text     = "Configure Device Bands",
-                style    = MiuixTheme.textStyles.title4,
-                color    = MiuixTheme.colorScheme.onBackground,
-                modifier = Modifier.padding(start = 4.dp)
-            )
-        }
-
-        // ── Scrollable content ────────────────────────────────────────────────
+        },
+        endAction = {
+            IconButton(
+                onClick = {
+                    saveError = null
+                    scope.launch {
+                        try {
+                            val selectedLte   = lteChecked.filterValues { it }.keys.toSet()
+                            val selectedNrNsa = nrNsaChecked.filterValues { it }.keys.toSet()
+                            val selectedNr    = nrChecked.filterValues { it }.keys.toSet()
+                            BandlockManager.saveBands(dataStore, selectedLte, selectedNrNsa, selectedNr)
+                            onSaved(SavedBands(lte = selectedLte, nrNsa = selectedNrNsa, nr = selectedNr))
+                            onDismiss()
+                        } catch (e: Exception) {
+                            saveError = e.message ?: "Unknown error"
+                        }
+                    }
+                }
+            ) {
+                Icon(
+                    imageVector        = MiuixIcons.Ok,
+                    contentDescription = "Save",
+                    tint               = MiuixTheme.colorScheme.onBackground
+                )
+            }
+        },
+    ) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(scrollState)
-                .padding(top = 8.dp),
+            modifier            = Modifier
+                .fillMaxWidth()
+                .nestedScroll(consumeUpwardWhenScrolled)
+                .verticalScroll(sheetScrollState)
+                .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-        if (!loaded) {
-            CircularProgressIndicator()
-        } else {
             Text(
                 text  = "4G Bands",
                 style = MiuixTheme.textStyles.title4,
@@ -758,27 +841,7 @@ private fun BandConfigScreen(
                 )
             }
 
-            Button(
-                onClick = {
-                    saveError = null
-                    scope.launch {
-                        try {
-                            val selectedLte   = lteChecked.filterValues { it }.keys.toSet()
-                            val selectedNrNsa = nrNsaChecked.filterValues { it }.keys.toSet()
-                            val selectedNr    = nrChecked.filterValues { it }.keys.toSet()
-                            BandlockManager.saveBands(dataStore, selectedLte, selectedNrNsa, selectedNr)
-                            onSaved(SavedBands(lte = selectedLte, nrNsa = selectedNrNsa, nr = selectedNr))
-                        } catch (e: Exception) {
-                            saveError = e.message ?: "Unknown error"
-                        }
-                    }
-                },
-                modifier = Modifier.fillMaxWidth(),
-                colors   = ButtonDefaults.buttonColorsPrimary()
-            ) { Text("Save") }
-
-            Spacer(Modifier.height(contentPadding.calculateBottomPadding()))
+            Spacer(Modifier.height(16.dp))
         }
-        } // end scrollable Column
-    } // end outer Column
+    }
 }

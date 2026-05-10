@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -38,10 +39,13 @@ import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
+import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.TabRow
 import top.yukonga.miuix.kmp.basic.TabRowWithContour
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TopAppBar
+import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -118,121 +122,123 @@ fun FeaturesScreen(
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(
-                top = contentPadding.calculateTopPadding() + 16.dp,
-                start = 16.dp,
-                end = 16.dp,
-                bottom = 0.dp
-            )
-    ) {
-        // ── 5G Mode selector ──────────────────────────────────────────────────
-        SmallTitle("5G Mode")
-        val nrEnabled = nrModeState is NrModeState.Loaded
-        val nrCurrentIndex = (nrModeState as? NrModeState.Loaded)?.index ?: 0
-        TabRow(
-            modifier = Modifier.alpha(if (nrEnabled) 1f else 0.4f),
-            tabs = nrModeTabLabels,
-            selectedTabIndex = nrCurrentIndex,
-            onTabSelected = { newIndex ->
-                if (!nrEnabled || newIndex == nrCurrentIndex) return@TabRow
-                if (!executionManager.isReady) {
-                    nrModeState = NrModeState.Error("Backend not ready")
-                    return@TabRow
-                }
-                nrModeState = NrModeState.Writing
-                scope.launch {
-                    try {
-                        val raw = executionManager.execMtbWithOutput(
-                            arrayOf("4", "5", "0", PATH_NR5G_MODE, newIndex.toString())
-                        )
-                        val exitLine = raw.lines().firstOrNull() ?: ""
-                        val exitCode = exitLine.removePrefix("EXIT:").toIntOrNull() ?: -1
-                        nrModeState = if (exitCode == 0) {
-                                nrModeChanged = true
-                                NrModeState.Loaded(newIndex)
-                            } else {
-                            NrModeState.Error("Write failed (exit $exitCode)")
+    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        TopAppBar(
+            title = "Features",
+            scrollBehavior = scrollBehavior,
+            defaultWindowInsetsPadding = true,
+            bottomContent = {
+                Column(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // ── 5G Mode selector ──────────────────────────────────────────
+                    SmallTitle("5G Mode")
+                    val nrEnabled = nrModeState is NrModeState.Loaded
+                    val nrCurrentIndex = (nrModeState as? NrModeState.Loaded)?.index ?: 0
+                    TabRow(
+                        modifier = Modifier.alpha(if (nrEnabled) 1f else 0.4f),
+                        tabs = nrModeTabLabels,
+                        selectedTabIndex = nrCurrentIndex,
+                        onTabSelected = { newIndex ->
+                            if (!nrEnabled || newIndex == nrCurrentIndex) return@TabRow
+                            if (!executionManager.isReady) {
+                                nrModeState = NrModeState.Error("Backend not ready")
+                                return@TabRow
+                            }
+                            nrModeState = NrModeState.Writing
+                            scope.launch {
+                                try {
+                                    val raw = executionManager.execMtbWithOutput(
+                                        arrayOf("4", "5", "0", PATH_NR5G_MODE, newIndex.toString())
+                                    )
+                                    val exitLine = raw.lines().firstOrNull() ?: ""
+                                    val exitCode = exitLine.removePrefix("EXIT:").toIntOrNull() ?: -1
+                                    nrModeState = if (exitCode == 0) {
+                                        nrModeChanged = true
+                                        NrModeState.Loaded(newIndex)
+                                    } else {
+                                        NrModeState.Error("Write failed (exit $exitCode)")
+                                    }
+                                } catch (e: Exception) {
+                                    nrModeState = NrModeState.Error(e.message ?: "Unknown error")
+                                }
+                            }
                         }
-                    } catch (e: Exception) {
-                        nrModeState = NrModeState.Error(e.message ?: "Unknown error")
+                    )
+                    if (nrModeState is NrModeState.Error) {
+                        Text(
+                            text = (nrModeState as? NrModeState.Error)?.message ?: "",
+                            style = MiuixTheme.textStyles.body2,
+                            color = ColorErrorOrange,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
                     }
+                    if (nrModeChanged) {
+                        Button(
+                            onClick = { scope.launch { executionManager.execMtb(arrayOf("11", "0")) } },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = nrModeState is NrModeState.Loaded,
+                        ) { Text("Reboot Modem (5G Mode)") }
+                    }
+
+                    Spacer(Modifier.height(4.dp))
+                    SmallTitle("Disable specific modem features")
+
+                    // ── Check button ──────────────────────────────────────────────
+                    Button(
+                        onClick = {
+                            if (!executionManager.isReady) {
+                                state = FeaturesState.CheckError("Backend not ready")
+                                return@Button
+                            }
+                            state = FeaturesState.Checking
+                            scope.launch {
+                                readNrMode()
+                                try {
+                                    val result = checkAll(simSlot, executionManager)
+                                    state = FeaturesState.Checked(
+                                        results = result.statuses,
+                                        originalBytes = result.originalBytes
+                                    )
+                                } catch (e: Exception) {
+                                    state = FeaturesState.CheckError(e.message ?: "Unknown error")
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = state !is FeaturesState.Checking,
+                        colors = ButtonDefaults.buttonColorsPrimary()
+                    ) { Text("Read available features") }
+
+                    // ── SIM tab group ─────────────────────────────────────────────
+                    TabRowWithContour(
+                        tabs = simOptions,
+                        selectedTabIndex = simSlot,
+                        onTabSelected = { idx ->
+                            if (idx != simSlot) {
+                                simSlot = idx
+                                state = FeaturesState.Idle
+                            }
+                        },
+                    )
                 }
             }
         )
-        if (nrModeState is NrModeState.Error) {
-            Text(
-                text = (nrModeState as? NrModeState.Error)?.message ?: "",
-                style = MiuixTheme.textStyles.body2,
-                color = ColorErrorOrange,
-                modifier = Modifier.padding(top = 4.dp)
-            )
-        }
-        Spacer(Modifier.height(8.dp))
-        if (nrModeChanged) {
-            Button(
-                onClick = { scope.launch { executionManager.execMtb(arrayOf("11", "0")) } },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = nrModeState is NrModeState.Loaded,
-            ) { Text("Reboot Modem (5G Mode)") }
-        }
 
-        Spacer(Modifier.height(12.dp))
-        SmallTitle("Disable specific modem features")
-
-        // ── Check button (above the tab group) ────────────────────────────────
-        Button(
-            onClick = {
-                if (!executionManager.isReady) {
-                    state = FeaturesState.CheckError("Backend not ready")
-                    return@Button
-                }
-                state = FeaturesState.Checking
-                scope.launch {
-                    // Read 5G mode
-                    readNrMode()
-                    // Check features
-                    try {
-                        val result = checkAll(simSlot, executionManager)
-                        state = FeaturesState.Checked(
-                            results = result.statuses,
-                            originalBytes = result.originalBytes
-                        )
-                    } catch (e: Exception) {
-                        state = FeaturesState.CheckError(e.message ?: "Unknown error")
-                    }
-                }
-            },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = state !is FeaturesState.Checking,
-            colors = ButtonDefaults.buttonColorsPrimary()
-        ) { Text("Read available features") }
-
-        Spacer(Modifier.height(12.dp))
-
-        // ── SIM tab group ─────────────────────────────────────────────────────
-        TabRowWithContour(
-            tabs = simOptions,
-            selectedTabIndex = simSlot,
-            onTabSelected = { idx ->
-                if (idx != simSlot) {
-                    simSlot = idx
-                    state = FeaturesState.Idle
-                }
-            },
-        )
-
-        Spacer(Modifier.height(8.dp))
-
+        // ── Scrollable feature list ────────────────────────────────────────────────
         Column(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .verticalScroll(rememberScrollState()),
+                .nestedScroll(scrollBehavior.nestedScrollConnection)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            Spacer(Modifier.height(8.dp))
             when (val s = state) {
                 is FeaturesState.Idle, is FeaturesState.Checking -> {
                     if (s is FeaturesState.Checking) CircularProgressIndicator()
