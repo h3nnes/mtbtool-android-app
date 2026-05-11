@@ -9,12 +9,12 @@ It wraps around the mtb binary located in `/vendor/bin` directory. If this binar
 ## Screenshots
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/ec4a6e0d-8985-4ac5-8d25-d118e9c8e6ea" width="48%" alt="Screenshot 1"/>
-  <img src="https://github.com/user-attachments/assets/39d40b37-4512-4477-96ed-58e8ce59b76a" width="48%" alt="Screenshot 2"/>
+  <img src="https://github.com/user-attachments/assets/27cd16a2-d237-4c41-ab47-fcd53c060a52" width="48%" alt="Screenshot 1"/>
+  <img src="https://github.com/user-attachments/assets/063bd70c-15d7-417b-a0f5-8440b26375c2" width="48%" alt="Screenshot 2"/>
 </p>
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/cc6b48e9-5736-4b82-b60e-c8afb652b242" width="48%" alt="Screenshot 3"/>
-  <img src="https://github.com/user-attachments/assets/01d316b2-cb13-4d33-8926-cd244b0d6149" width="48%" alt="Screenshot 4"/>
+  <img src="https://github.com/user-attachments/assets/f03056ee-7122-4444-a158-87e2eeb4f1b8" width="48%" alt="Screenshot 3"/>
+  <img src="https://github.com/user-attachments/assets/886bde76-07a5-4ca1-a53a-f251f1bf0fdc" width="48%" alt="Screenshot 4"/>
 </p>
 
 
