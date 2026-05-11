@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -558,21 +559,23 @@ fun BandlockScreen(
         summary          = "Supported bands could not be detected automatically. You can configure your device's supported bands manually instead.",
         onDismissRequest = { showDetectFailedDialog = false }
     ) {
-        TextButton(
-            text     = "Configure manually",
-            onClick  = {
-                showDetectFailedDialog = false
-                showConfig = true
-            },
-            modifier = Modifier.fillMaxWidth(),
-            colors   = ButtonDefaults.textButtonColorsPrimary()
-        )
-        Spacer(Modifier.height(8.dp))
-        TextButton(
-            text     = "Dismiss",
-            onClick  = { showDetectFailedDialog = false },
-            modifier = Modifier.fillMaxWidth()
-        )
+        Row(horizontalArrangement = Arrangement.SpaceBetween) {
+            TextButton(
+                text     = "Dismiss",
+                onClick  = { showDetectFailedDialog = false },
+                modifier = Modifier.weight(1f)
+            )
+            Spacer(Modifier.width(20.dp))
+            TextButton(
+                text     = "Configure manually",
+                onClick  = {
+                    showDetectFailedDialog = false
+                    showConfig = true
+                },
+                modifier = Modifier.weight(1f),
+                colors   = ButtonDefaults.textButtonColorsPrimary()
+            )
+        }
     }
 
     WindowDialog(
@@ -581,32 +584,34 @@ fun BandlockScreen(
         summary          = "Hardware-supported bands were detected. Do you want to use them, or keep your manually configured bands?",
         onDismissRequest = { showSwitchToDiagDialog = false; pendingDiagBands = null }
     ) {
-        TextButton(
-            text     = "Use detected bands",
-            onClick  = {
-                showSwitchToDiagDialog = false
-                pendingDiagBands?.let { bands ->
-                    scope.launch {
-                        supportedLte   = bands.lte
-                        supportedNrNsa = bands.nrNsa
-                        supportedNrSa  = bands.nr
-                        readCurrentPrefs(bands.lte, bands.nrNsa, bands.nr)
-                        showReboot = false
-                        bandSource = BandSource.Diag
-                        detectInfoMessage = null
+        Row(horizontalArrangement = Arrangement.SpaceBetween) {
+            TextButton(
+                text     = "Keep my configuration",
+                onClick  = { showSwitchToDiagDialog = false; pendingDiagBands = null },
+                modifier = Modifier.weight(1f)
+            )
+            Spacer(Modifier.width(20.dp))
+            TextButton(
+                text     = "Use detected bands",
+                onClick  = {
+                    showSwitchToDiagDialog = false
+                    pendingDiagBands?.let { bands ->
+                        scope.launch {
+                            supportedLte   = bands.lte
+                            supportedNrNsa = bands.nrNsa
+                            supportedNrSa  = bands.nr
+                            readCurrentPrefs(bands.lte, bands.nrNsa, bands.nr)
+                            showReboot = false
+                            bandSource = BandSource.Diag
+                            detectInfoMessage = null
+                        }
+                        pendingDiagBands = null
                     }
-                    pendingDiagBands = null
-                }
-            },
-            modifier = Modifier.fillMaxWidth(),
-            colors   = ButtonDefaults.textButtonColorsPrimary()
-        )
-        Spacer(Modifier.height(8.dp))
-        TextButton(
-            text     = "Keep my configuration",
-            onClick  = { showSwitchToDiagDialog = false; pendingDiagBands = null },
-            modifier = Modifier.fillMaxWidth()
-        )
+                },
+                modifier = Modifier.weight(1f),
+                colors   = ButtonDefaults.textButtonColorsPrimary()
+            )
+        }
     }
 }
 

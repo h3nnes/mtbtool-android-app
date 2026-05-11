@@ -135,6 +135,67 @@ val ALL_FEATURES: List<FeatureDef> = listOf(
             b[0] == 0 && b[1] == 0 && b[2] == 0 && b[3] == 5 &&
             bandBytes.indices.all { i -> b[4 + i] == bandBytes[i] }
         }
+    ),
+    // ── NSA NR-CA features ────────────────────────────────────────────────────────
+    FeatureDef(
+        id = "nsa_tf_nrca",
+        label = "Disable T+F NSA NR-CA",
+        reads = listOf(
+            NR_BASE + "cap_control_mrdc_f_plus_t_band_combos",
+            NR_BASE + "cap_control_t_plus_f_band_combos"
+        ),
+        writes = listOf(
+            NvWrite(NR_BASE + "cap_control_mrdc_f_plus_t_band_combos", "0"),
+            NvWrite(NR_BASE + "cap_control_t_plus_f_band_combos",      "7")
+        ),
+        isDisabled = { byteArrays ->
+            if (byteArrays.size < 2) return@FeatureDef false
+            val (b0, b1) = byteArrays
+            b0.firstOrNull() == 0 &&
+            b1.firstOrNull() == 7
+        }
+    ),
+    FeatureDef(
+        id = "nsa_ff_nrca",
+        label = "Disable F+F NSA NR-CA",
+        reads = listOf(NR_BASE + "cap_control_mrdc_2x_f_plus_f_band_combos"),
+        writes = listOf(
+            NvWrite(NR_BASE + "cap_control_mrdc_2x_f_plus_f_band_combos", "0")
+        ),
+        isDisabled = { byteArrays ->
+            val b = byteArrays.firstOrNull() ?: return@FeatureDef true
+            b.firstOrNull() == 0
+        }
+    ),
+    FeatureDef(
+        id = "nsa_tt_nrca",
+        label = "Disable T+T NSA NR-CA",
+        reads = listOf(
+            NR_BASE + "cap_control_mrdc_t_plus_t_band_combos",
+            NR_BASE + "cap_control_nr_t_plus_t_band_combos"
+        ),
+        writes = listOf(
+            NvWrite(NR_BASE + "cap_control_mrdc_t_plus_t_band_combos", "0 0 0"),
+            NvWrite(NR_BASE + "cap_control_nr_t_plus_t_band_combos",   "0 0")
+        ),
+        isDisabled = { byteArrays ->
+            if (byteArrays.size < 2) return@FeatureDef false
+            val (b0, b1) = byteArrays
+            b0.size >= 3 && b0[0] == 0 && b0[1] == 0 && b0[2] == 0 &&
+            b1.size >= 2 && b1[0] == 0 && b1[1] == 0
+        }
+    ),
+    FeatureDef(
+        id = "dss",
+        label = "Disable DSS",
+        reads = listOf(NR_BASE + "cap_dss_control"),
+        writes = listOf(
+            NvWrite(NR_BASE + "cap_dss_control", "0 0")
+        ),
+        isDisabled = { byteArrays ->
+            val b = byteArrays.firstOrNull() ?: return@FeatureDef true
+            b.size >= 2 && b[0] == 0 && b[1] == 0
+        }
     )
 )
 

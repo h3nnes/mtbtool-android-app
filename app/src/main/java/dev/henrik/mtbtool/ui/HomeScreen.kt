@@ -23,16 +23,22 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import dev.henrik.mtbtool.BulkImporter
 import dev.henrik.mtbtool.ImportCommand
+import dev.henrik.mtbtool.NvImportParser
 import dev.henrik.mtbtool.ImportEvent
 import dev.henrik.mtbtool.ExecutionManager
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
+import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TopAppBar
+import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 sealed class HomeState {
@@ -59,7 +65,10 @@ fun HomeScreen(
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         try {
-            val commands = BulkImporter.parseFile(context.contentResolver, uri)
+            val jsonString = context.contentResolver.openInputStream(uri)
+                ?.bufferedReader()?.readText()
+                ?: throw Exception("Could not read file")
+            val commands = NvImportParser.parse(jsonString)
             val name = uri.lastPathSegment ?: uri.toString()
             onStateChange(HomeState.FileSelected(uri = uri, name = name, commands = commands))
             onErrorChange(null)
@@ -69,139 +78,136 @@ fun HomeScreen(
     }
 
     SelectionContainer {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(
-                    top = contentPadding.calculateTopPadding() + 16.dp,
-                    start = 16.dp,
-                    end = 16.dp,
-                    bottom = 0.dp
-                ),
-        ) {
-            // ── Shizuku banner ────────────────────────────────────────────
-            if (!executionManager.isReady) {
-                BackendBanner(onGrantClick = { executionManager.requestPermission() })
-                Spacer(Modifier.height(8.dp))
-            }
+        val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
 
-            // ── Error message ─────────────────────────────────────────────
-            errorMessage?.let {
-                Text(text = it, color = Color.Red, style = MiuixTheme.textStyles.body2)
-                Spacer(Modifier.height(8.dp))
-            }
-
-            // ── State-dependent header ────────────────────────────────────
-            when (val s = state) {
-                is HomeState.Idle -> {
-                    Text(
-                        "Select an EFS NV item configuration file to import.",
-                        style = MiuixTheme.textStyles.body1,
-                        color = MiuixTheme.colorScheme.onBackground
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    Button(
-                        onClick = { filePicker.launch(arrayOf("text/plain")) },
-                        modifier = Modifier.fillMaxWidth()
+        Column(modifier = Modifier.fillMaxSize()) {
+            TopAppBar(
+                title = "Bulk-Import EFS",
+                scrollBehavior = scrollBehavior,
+                defaultWindowInsetsPadding = true,
+                bottomContent = {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text("Select .txt file")
-                    }
-                }
+                        // ── Backend banner ────────────────────────────────────
+                        if (!executionManager.isReady) {
+                            BackendBanner(onGrantClick = { executionManager.requestPermission() })
+                        }
 
-                is HomeState.FileSelected -> {
-                    Text("File: ${s.name}", style = MiuixTheme.textStyles.body1, color = MiuixTheme.colorScheme.onBackground)
-                    Text(
-                        "${s.commands.size} commands parsed",
-                        style = MiuixTheme.textStyles.body2,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantActions
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Button(
-                        onClick = { filePicker.launch(arrayOf("text/plain")) },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Change file")
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    Button(
-                        onClick = {
-                            if (!executionManager.isReady) {
-                                onErrorChange("Backend not ready")
-                                return@Button
+                        // ── Error message ─────────────────────────────────────
+                        errorMessage?.let {
+                            Text(text = it, color = Color.Red, style = MiuixTheme.textStyles.body2)
+                        }
+
+                        // ── State-dependent controls ───────────────────────────
+                        when (val s = state) {
+                            is HomeState.Idle -> {
+                                Text(
+                                    "Select an EFS NV item configuration file to import.",
+                                    style = MiuixTheme.textStyles.body1,
+                                    color = MiuixTheme.colorScheme.onBackground
+                                )
+                                Button(
+                                    onClick = { filePicker.launch(arrayOf("text/plain", "application/json")) },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("Select .txt or .json file")
+                                }
                             }
-                            onStateChange(HomeState.Importing(s.commands, 0, emptyList()))
-                            scope.launch {
-                                val results = mutableListOf<Pair<ImportCommand, Int>>()
-                                BulkImporter.import(s.commands, executionManager).collect { event ->
-                                    when (event) {
-                                        is ImportEvent.Progress -> {
-                                            results.add(event.command to event.exitCode)
-                                            onStateChange(HomeState.Importing(s.commands, event.done, results.toList()))
+
+                            is HomeState.FileSelected -> {
+                                Text("File: ${s.name}", style = MiuixTheme.textStyles.body1, color = MiuixTheme.colorScheme.onBackground)
+                                Text(
+                                    "${s.commands.size} commands parsed",
+                                    style = MiuixTheme.textStyles.body2,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantActions
+                                )
+                                Button(
+                                    onClick = { filePicker.launch(arrayOf("text/plain", "application/json")) },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("Change file")
+                                }
+                                Button(
+                                    onClick = {
+                                        if (!executionManager.isReady) {
+                                            onErrorChange("Backend not ready")
+                                            return@Button
                                         }
-                                        is ImportEvent.Done -> {
-                                            onStateChange(HomeState.Done(event.ok, event.fail, results.toList()))
+                                        onStateChange(HomeState.Importing(s.commands, 0, emptyList()))
+                                        scope.launch {
+                                            val results = mutableListOf<Pair<ImportCommand, Int>>()
+                                            BulkImporter.import(s.commands, executionManager).collect { event ->
+                                                when (event) {
+                                                    is ImportEvent.Progress -> {
+                                                        results.add(event.command to event.exitCode)
+                                                        onStateChange(HomeState.Importing(s.commands, event.done, results.toList()))
+                                                    }
+                                                    is ImportEvent.Done -> {
+                                                        onStateChange(HomeState.Done(event.ok, event.fail, results.toList()))
+                                                    }
+                                                    is ImportEvent.Error -> {
+                                                        onErrorChange(event.message)
+                                                        onStateChange(HomeState.Done(
+                                                            results.count { it.second == 0 },
+                                                            results.count { it.second != 0 },
+                                                            results.toList()
+                                                        ))
+                                                    }
+                                                }
+                                            }
                                         }
-                                        is ImportEvent.Error -> {
-                                            onErrorChange(event.message)
-                                            onStateChange(HomeState.Done(
-                                                results.count { it.second == 0 },
-                                                results.count { it.second != 0 },
-                                                results.toList()
-                                            ))
-                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = ButtonDefaults.buttonColorsPrimary()
+                                ) {
+                                    Text("Start import")
+                                }
+                            }
+
+                            is HomeState.Importing -> {
+                                val progress = if (s.commands.isEmpty()) 0f else s.done.toFloat() / s.commands.size
+                                Text(
+                                    "Importing… ${s.done} / ${s.commands.size}",
+                                    style = MiuixTheme.textStyles.body1,
+                                    color = MiuixTheme.colorScheme.onBackground
+                                )
+                                LinearProgressIndicator(progress = progress, modifier = Modifier.fillMaxWidth())
+                            }
+
+                            is HomeState.Done -> {
+                                Text(
+                                    "Done — ${s.ok} OK, ${s.fail} FAIL",
+                                    style = MiuixTheme.textStyles.title3,
+                                    color = if (s.fail == 0) Color(0xFF4CAF50) else Color(0xFFF44336)
+                                )
+                                if (s.fail == 0) {
+                                    Button(
+                                        onClick = {
+                                            scope.launch {
+                                                executionManager.execMtb(arrayOf("11", "0"))
+                                            }
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = ButtonDefaults.buttonColorsPrimary()
+                                    ) {
+                                        Text("Reboot modem to apply")
                                     }
                                 }
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Start import")
-                    }
-                }
-
-                is HomeState.Importing -> {
-                    val progress = if (s.commands.isEmpty()) 0f else s.done.toFloat() / s.commands.size
-                    Text(
-                        "Importing… ${s.done} / ${s.commands.size}",
-                        style = MiuixTheme.textStyles.body1,
-                        color = MiuixTheme.colorScheme.onBackground
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    LinearProgressIndicator(progress = progress, modifier = Modifier.fillMaxWidth())
-                }
-
-                is HomeState.Done -> {
-                    Text(
-                        "Done — ${s.ok} OK, ${s.fail} FAIL",
-                        style = MiuixTheme.textStyles.title3,
-                        color = if (s.fail == 0) Color(0xFF4CAF50) else Color(0xFFF44336)
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    if (s.fail == 0) {
-                        Button(
-                            onClick = {
-                                scope.launch {
-                                    executionManager.execMtb(arrayOf("11", "0"))
+                                Button(
+                                    onClick = { onStateChange(HomeState.Idle); onErrorChange(null) },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("Start over")
                                 }
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Reboot Modem")
+                            }
                         }
-                        Spacer(Modifier.height(8.dp))
-                    }
-                    Button(
-                        onClick = { onStateChange(HomeState.Idle); onErrorChange(null) },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Start over")
                     }
                 }
-            }
+            )
 
-            Spacer(Modifier.height(12.dp))
-
-            // ── Result log ────────────────────────────────────────────────
+            // ── Result log ─────────────────────────────────────────────────────
             val results: List<Pair<ImportCommand, Int>> = when (val s = state) {
                 is HomeState.Importing -> s.results
                 is HomeState.Done      -> s.results
@@ -209,8 +215,15 @@ fun HomeScreen(
             }
             ResultList(
                 results = results,
-                modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(bottom = contentPadding.calculateBottomPadding())
+                modifier = Modifier
+                    .weight(1f)
+                    .nestedScroll(scrollBehavior.nestedScrollConnection),
+                contentPadding = PaddingValues(
+                    top = 8.dp,
+                    start = 16.dp,
+                    end = 16.dp,
+                    bottom = contentPadding.calculateBottomPadding()
+                )
             )
         }
     }
@@ -260,7 +273,7 @@ private fun ResultList(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // args: [cmd="4", op, sim_slot, /path, value...]
+                // args: ["4", op, sim_slot, /path, value...]
                 // op: 5 = write, 6 = delete
                 val isWrite  = cmd.args.getOrNull(1) == "5"
                 val isDelete = cmd.args.getOrNull(1) == "6"

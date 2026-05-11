@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.draw.alpha
@@ -44,10 +45,12 @@ import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.TabRow
 import top.yukonga.miuix.kmp.basic.TabRowWithContour
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.window.WindowDialog
 
 private val simOptions = listOf("SIM 0", "SIM 1")
 private val ColorErrorRed = Color(0xFFF44336)
@@ -60,8 +63,9 @@ sealed class FeaturesState {
     data class CheckError(val message: String) : FeaturesState()
     data class Checked(
         val results: Map<FeatureDef, FeatureStatus>,
-        /** Raw bytes as read from NV at check time, keyed by feature. Only present for features that read successfully. */
-        val originalBytes: Map<FeatureDef, List<List<Int>>>
+        /** Raw bytes as read from NV at check time, keyed by feature. Null per-path entry
+         *  means that NV item did not exist (absent = modem default). */
+        val originalBytes: Map<FeatureDef, List<List<Int>?>>
     ) : FeaturesState()
 }
 
@@ -84,7 +88,7 @@ fun FeaturesScreen(
     var simSlot by remember { mutableIntStateOf(0) }
     var state by remember { mutableStateOf<FeaturesState>(FeaturesState.Idle) }
     var nrModeState by remember { mutableStateOf<NrModeState>(NrModeState.Idle) }
-    var nrModeChanged by remember { mutableStateOf(false) }
+    var pendingNrIndex by remember { mutableStateOf<Int?>(null) }
     val scope = rememberCoroutineScope()
 
     suspend fun readNrMode() {
@@ -148,24 +152,7 @@ fun FeaturesScreen(
                                 nrModeState = NrModeState.Error("Backend not ready")
                                 return@TabRow
                             }
-                            nrModeState = NrModeState.Writing
-                            scope.launch {
-                                try {
-                                    val raw = executionManager.execMtbWithOutput(
-                                        arrayOf("4", "5", "0", PATH_NR5G_MODE, newIndex.toString())
-                                    )
-                                    val exitLine = raw.lines().firstOrNull() ?: ""
-                                    val exitCode = exitLine.removePrefix("EXIT:").toIntOrNull() ?: -1
-                                    nrModeState = if (exitCode == 0) {
-                                        nrModeChanged = true
-                                        NrModeState.Loaded(newIndex)
-                                    } else {
-                                        NrModeState.Error("Write failed (exit $exitCode)")
-                                    }
-                                } catch (e: Exception) {
-                                    nrModeState = NrModeState.Error(e.message ?: "Unknown error")
-                                }
-                            }
+                            pendingNrIndex = newIndex
                         }
                     )
                     if (nrModeState is NrModeState.Error) {
@@ -175,13 +162,6 @@ fun FeaturesScreen(
                             color = ColorErrorOrange,
                             modifier = Modifier.padding(top = 4.dp)
                         )
-                    }
-                    if (nrModeChanged) {
-                        Button(
-                            onClick = { scope.launch { executionManager.execMtb(arrayOf("11", "0")) } },
-                            modifier = Modifier.fillMaxWidth(),
-                            enabled = nrModeState is NrModeState.Loaded,
-                        ) { Text("Reboot Modem (5G Mode)") }
                     }
 
                     Spacer(Modifier.height(4.dp))
@@ -305,12 +285,23 @@ fun FeaturesScreen(
                                 scope.launch {
                                     val orig = s.originalBytes
                                     for ((feature, bytes) in orig) {
+                                        // Only restore features that were actually disabled by the user.
+                                        val currentStatus = (state as? FeaturesState.Checked)?.results?.get(feature)
+                                        if (currentStatus !is FeatureStatus.Restoring) continue
                                         val error = restoreFeature(feature, bytes, simSlot, executionManager)
                                         val current = (state as? FeaturesState.Checked)?.results?.toMutableMap()
                                             ?: return@launch
                                         current[feature] = if (error == null) {
-                                            if (feature.isDisabled(bytes)) FeatureStatus.AlreadyDisabled
-                                            else FeatureStatus.CanDisable
+                                            // If any path was originally absent, the feature is
+                                            // back to default (enabled). Otherwise check bytes.
+                                            val orig = bytes
+                                            if (orig.any { it == null }) {
+                                                FeatureStatus.CanDisable
+                                            } else if (feature.isDisabled(orig.filterNotNull())) {
+                                                FeatureStatus.AlreadyDisabled
+                                            } else {
+                                                FeatureStatus.CanDisable
+                                            }
                                         } else {
                                             FeatureStatus.WriteError(error)
                                         }
@@ -336,6 +327,54 @@ fun FeaturesScreen(
                 }
             }
             Spacer(Modifier.height(contentPadding.calculateBottomPadding()))
+        }
+    }
+
+    // ── 5G Mode confirmation dialog ────────────────────────────────────────────
+    val idx = pendingNrIndex
+    if (idx != null) {
+        WindowDialog(
+            show = true,
+            title = "Change 5G Mode",
+            summary = "Switch to \"${nrModeTabLabels[idx]}\"? The modem will reboot to apply the change.",
+            onDismissRequest = { pendingNrIndex = null }
+        ) {
+            Row(horizontalArrangement = Arrangement.SpaceBetween) {
+                TextButton(
+                    text = "Abort",
+                    onClick = { pendingNrIndex = null },
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(Modifier.width(20.dp))
+                TextButton(
+                    text = "Apply",
+                    onClick = {
+                        pendingNrIndex = null
+                        nrModeState = NrModeState.Writing
+                        scope.launch {
+                            try {
+                                val raw = executionManager.execMtbWithOutput(
+                                    arrayOf("4", "5", "0", PATH_NR5G_MODE, idx.toString())
+                                )
+                                val exitLine = raw.lines().firstOrNull() ?: ""
+                                val exitCode = exitLine.removePrefix("EXIT:").toIntOrNull() ?: -1
+                                nrModeState = if (exitCode == 0) {
+                                    NrModeState.Loaded(idx)
+                                } else {
+                                    NrModeState.Error("Write failed (exit $exitCode)")
+                                }
+                                if (exitCode == 0) {
+                                    executionManager.execMtb(arrayOf("11", "0"))
+                                }
+                            } catch (e: Exception) {
+                                nrModeState = NrModeState.Error(e.message ?: "Unknown error")
+                            }
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.textButtonColorsPrimary()
+                )
+            }
         }
     }
 }

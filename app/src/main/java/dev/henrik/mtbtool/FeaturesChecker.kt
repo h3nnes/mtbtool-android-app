@@ -6,11 +6,12 @@ import dev.henrik.mtbtool.ui.parseHexOutput  // NvParseUtils.kt (same project, d
 /**
  * Result of checking all features: status per feature, plus the raw bytes read
  * from NV for each feature (keyed by feature, then list of byte arrays — one per
- * read path). Only features that were read without error have entries in [originalBytes].
+ * read path, null when the NV item did not exist on the modem).
+ * Only features that were read without error have entries in [originalBytes].
  */
 data class CheckResult(
     val statuses: Map<FeatureDef, FeatureStatus>,
-    val originalBytes: Map<FeatureDef, List<List<Int>>>
+    val originalBytes: Map<FeatureDef, List<List<Int>?>>
 )
 
 /**
@@ -22,12 +23,12 @@ suspend fun checkAll(
     simSlot: Int,
     executionManager: ExecutionManager
 ): CheckResult {
-    val statuses     = mutableMapOf<FeatureDef, FeatureStatus>()
-    val originalBytes = mutableMapOf<FeatureDef, List<List<Int>>>()
+    val statuses      = mutableMapOf<FeatureDef, FeatureStatus>()
+    val originalBytes = mutableMapOf<FeatureDef, List<List<Int>?>>()
 
     for (feature in ALL_FEATURES) {
-        var readError: FeatureStatus.ReadError? = null
-        val byteArrays = mutableListOf<List<Int>>()
+        // null entry = NV item was absent on the modem (default / never written)
+        val byteArrays = mutableListOf<List<Int>?>()
 
         for (path in feature.reads) {
             val raw = executionManager.execMtbWithOutput(
@@ -35,24 +36,33 @@ suspend fun checkAll(
             )
             val exitLine = raw.lines().firstOrNull() ?: ""
             val exitCode = exitLine.removePrefix("EXIT:").toIntOrNull() ?: -1
-            val output = raw.lines().drop(1).joinToString("\n")
+
             if (exitCode != 0) {
-                readError = FeatureStatus.ReadError("Exit $exitCode for ${path.substringAfterLast('/')}")
-                break
+                // Any non-zero exit code means the NV item could not be read
+                // (most likely absent/never written) — record null so restore will delete it.
+                byteArrays.add(null)
+            } else {
+                val rows = parseHexOutput(raw)
+                val flat = rows.flatten().map { hex -> hex.toIntOrNull(16) ?: 0 }
+                if (flat.isEmpty()) {
+                    // Exit 0 but no bytes returned — treat as absent (modem default).
+                    byteArrays.add(null)
+                } else {
+                    byteArrays.add(flat)
+                }
             }
-            val rows = parseHexOutput(output)
-            byteArrays.add(rows.flatten().map { hex -> hex.toIntOrNull(16) ?: 0 })
         }
 
-        if (readError != null) {
-            statuses[feature] = readError
+        originalBytes[feature] = byteArrays.toList()
+        // For isDisabled check, pass only the paths that actually existed.
+        val existingBytes = byteArrays.filterNotNull()
+        statuses[feature] = if (byteArrays.any { it == null }) {
+            // At least one path was absent → modem default → feature is enabled.
+            FeatureStatus.CanDisable
+        } else if (feature.isDisabled(existingBytes)) {
+            FeatureStatus.AlreadyDisabled
         } else {
-            originalBytes[feature] = byteArrays.toList()
-            statuses[feature] = if (feature.isDisabled(byteArrays)) {
-                FeatureStatus.AlreadyDisabled
-            } else {
-                FeatureStatus.CanDisable
-            }
+            FeatureStatus.CanDisable
         }
     }
 
@@ -81,26 +91,49 @@ suspend fun disableFeature(
 }
 
 /**
- * Restores the original NV bytes for [feature] as captured at check time.
- * [originalBytes] is the list of byte arrays — one per read path (same order as [FeatureDef.reads]).
- * Each path from [FeatureDef.reads] is written back with its corresponding original bytes.
+ * Restores the original NV state for [feature] as captured at check time.
+ * [originalBytes] is the list of byte arrays — one per read path (same order as
+ * [FeatureDef.reads]). A null entry means the NV item did not exist at check time
+ * and should be deleted to restore the modem default.
  * Returns null on success, or an error message string on failure.
  */
 suspend fun restoreFeature(
     feature: FeatureDef,
-    originalBytes: List<List<Int>>,
+    originalBytes: List<List<Int>?>,
     simSlot: Int,
     executionManager: ExecutionManager
 ): String? {
     feature.reads.forEachIndexed { index, path ->
-        val bytes = originalBytes.getOrNull(index) ?: return "No original data for ${path.substringAfterLast('/')}"
-        val byteArgs = bytes.map { it.toString() }.toTypedArray()
-        val args = arrayOf("4", "5", simSlot.toString(), path) + byteArgs
-        val raw = executionManager.execMtbWithOutput(args)
-        val exitLine = raw.lines().firstOrNull() ?: ""
-        val exitCode = exitLine.removePrefix("EXIT:").toIntOrNull() ?: -1
-        if (exitCode != 0) {
-            return "Restore failed (exit $exitCode) for ${path.substringAfterLast('/')}"
+        val bytes = originalBytes.getOrNull(index)
+        if (bytes == null) {
+            // NV item was absent — delete it to restore modem default.
+            val deleteArgs = arrayOf("4", "6", simSlot.toString(), path)
+            val raw = executionManager.execMtbWithOutput(deleteArgs)
+            val exitLine = raw.lines().firstOrNull() ?: ""
+            val exitCode = exitLine.removePrefix("EXIT:").toIntOrNull() ?: -1
+            // Verify: re-read after delete. Item is "still present" only if exit 0
+            // AND non-empty bytes are returned (this modem returns exit 0 + empty
+            // output when an item is absent, so empty == gone).
+            val verifyRaw = executionManager.execMtbWithOutput(
+                arrayOf("4", "4", simSlot.toString(), path)
+            )
+            val verifyExit = verifyRaw.lines().firstOrNull()
+                ?.removePrefix("EXIT:")?.toIntOrNull() ?: -1
+            val verifyBytes = parseHexOutput(verifyRaw).flatten()
+            if (verifyExit == 0 && verifyBytes.isNotEmpty()) {
+                // Item still readable with data after delete — delete did not take effect.
+                return "Delete exit $exitCode but item still exists: ${path.substringAfterLast('/')}"
+            }
+            // Item is gone (non-zero exit, or exit 0 with no data) — success.
+        } else {
+            val raw = executionManager.execMtbWithOutput(
+                arrayOf("4", "5", simSlot.toString(), path) + bytes.map { it.toString() }.toTypedArray()
+            )
+            val exitLine = raw.lines().firstOrNull() ?: ""
+            val exitCode = exitLine.removePrefix("EXIT:").toIntOrNull() ?: -1
+            if (exitCode != 0) {
+                return "Restore failed (exit $exitCode) for ${path.substringAfterLast('/')}"
+            }
         }
     }
     return null
