@@ -1,6 +1,6 @@
 # MTB Tool
 
-An Android app for managing EFS NV items on Xiaomi Qualcomm devices. Uses root access (preferred) or [Shizuku](https://github.com/RikkaApps/Shizuku) as a fallback for privileged access to `/vendor/bin/mtb`.
+An Android app for managing EFS NV items on Xiaomi Qualcomm devices that does not require root. Still supports root access if available and falls back to [Shizuku](https://github.com/RikkaApps/Shizuku) for privileged access to `/vendor/bin/mtb`.
 
 It wraps around the mtb binary located in `/vendor/bin` directory. If this binary does not exist, the app will NOT work! Tested on MIUI/HyperOS devices running Android 13+.
 
@@ -21,7 +21,7 @@ It wraps around the mtb binary located in `/vendor/bin` directory. If this binar
 ## What it does
 
 ### Import tab
-Bulk-imports EFS NV item configuration files (`.txt`) exported from QPST/QXDM. Parses the file into individual write/delete commands and runs them sequentially via `mtb`, showing live progress. After a successful import a "Reboot Modem" button appears to apply the changes.
+Bulk-imports EFS NV item files from a `.json` file. Parses the import json file into individual write/delete commands and runs them sequentially via `mtb`, showing live progress. After a successful import a "Reboot Modem" button appears to apply the changes. See [tools directory](tools/) for a description of the file format that is used.
 
 ### Read tab
 Reads a single EFS NV item by name and displays its raw bytes as a colour-coded hex dump. Supports 4G/LTE (`/nv/item_files/modem/lte/rrc/efs/`), 5G/NR (`/nv/item_files/modem/nr5g/RRC/`), and a custom base path, selectable via a dropdown. The hex view is horizontally scrollable. The item name field triggers a read on keyboard confirm as well as the Send button.
@@ -29,25 +29,17 @@ Reads a single EFS NV item by name and displays its raw bytes as a colour-coded 
 ### Features tab
 Checks and disables specific modem features by writing known-good NV values:
 
-| Feature | Description |
-|---|---|
-| R17 2T2T UL Tx Switching | Disables R17 uplink Tx switching band combos |
-| R16 2T1T UL Tx Switching | Disables R16 uplink Tx switching band combos |
-| UL MIMO (limit to 1Tx) | Limits uplink MIMO to 1 transmit antenna |
-| NR UL Carrier Aggregation | Disables NR uplink carrier aggregation |
-| DL NR-CA (1cc only) | Limits downlink NR-CA to one component carrier |
-| Lowband 4Rx → 2Rx | Limits low-band reception to 2 receive antennas |
-
-Each feature row shows as a toggle. Enabled (on) = can be disabled; greyed out (off) = already disabled. Toggling a switch off writes the NV values immediately. A "Reboot Modem" button at the bottom applies all changes. Already-disabled features can be restored to their original values via the "Restore original values" button.
+Each feature row shows as a toggle. Enabled features make the toggle appear as off; greyed out enabled toggle = already disabled. Toggling a switch on writes the NV values to disable a feature immediately. A "Reboot Modem" button at the bottom applies all changes. Already-disabled features can be restored to their original values via the "Restore original values" button. If an NV item did not exist before disabling a feature, it will be deleted again upon restoring previous values.
 
 ### Bandlock tab
 Configures and applies a persistent band lock to the modem by writing three EFS NV items:
 
 | NV path | Size | Purpose |
 |---|---|---|
-| `.../mmode/lte_bandpref` | 8 bytes | LTE bands B1–B64 |
-| `.../mmode/lte_bandpref_extn_65_256` | 24 bytes | LTE extension bands (B66, B71) |
-| `.../mmode/nr_band_pref` | 64 bytes | NR bands (sub-6 and mmWave) |
+| `/nv/item_files/modem/mmode/lte_bandpref` | 8 bytes | LTE bands B1–B64 |
+| `/nv/item_files/modem/mmode/lte_bandpref_extn_65_256` | 24 bytes | LTE extension bands (B66, B71) |
+| `/nv/item_files/modem/mmode/nr_nsa_band_pref` | 64 bytes | NR NSA bands (sub-6 and mmWave) |
+| `/nv/item_files/modem/mmode/nr_band_pref` | 64 bytes | NR SA bands (sub-6 and mmWave) |
 
 **Workflow:**
 
@@ -63,7 +55,7 @@ The band source (detected from hardware or manually configured) is shown as a ca
 Live monitor for LTE and NR cell information. Polls the modem at a configurable interval (1 s, 2 s, 5 s, 10 s, 30 s) and displays per-cell signal metrics for all visible LTE and NR cells, plus uplink TX power. Start/stop logging with a single button. Cell data persists across tab switches — polling continues in the background while you navigate the app.
 
 ### Info tab
-App version, backend description, and device compatibility notes.
+App version, backend description, and device compatibility notes. Also, a HyperOS 3 inspired glow effect background animation :)
 
 ## Backend
 
@@ -77,44 +69,57 @@ At least one backend must be running for any command to execute. The status bann
 ## Structure
 
 ```
-app/src/main/
-├── aidl/dev/henrik/mtbtool/
-│   └── IMtbService.aidl              # Shared AIDL interface (execMtb, execMtbWithOutput)
-└── java/dev/henrik/mtbtool/
-    ├── MainActivity.kt               # Entry point, backend lifecycle, DataStore instance
-    ├── ExecutionManager.kt           # Unified backend: root-first with Shizuku fallback
-    ├── RootManager.kt                # libsu RootService binding lifecycle
-    ├── MtbRootService.kt             # RootService implementation (runs as root UID)
-    ├── ShizukuManager.kt             # Shizuku permission + UserService binding
-    ├── MtbUserService.kt             # Shizuku UserService implementation (runs at shell UID)
-    ├── BulkImporter.kt               # Parses .txt NV files, streams import events
-    ├── FeatureDef.kt                 # Feature definitions, NV write payloads, isDisabled checks
-    ├── FeaturesChecker.kt            # checkAll() and disableFeature() coroutine functions
-    ├── BandPreferences.kt            # DataStore key definitions for band configuration
-    ├── BandlockManager.kt            # Band bitmask build/parse logic + DIAG offset detection
-    ├── CellMonitor.kt                # Cell polling commands, response parsers, and StalenessTracker
-    └── ui/
-        ├── MainScreen.kt             # 6-tab scaffold with FloatingBottomBar + status bar fade
-        ├── HomeScreen.kt             # Import tab UI
-        ├── ReadScreen.kt             # Read tab UI + horizontally scrollable hex dump
-        ├── FeaturesScreen.kt         # Features tab UI
-        ├── BandlockScreen.kt         # Bandlock tab UI + BandConfigScreen
-        ├── CellsScreen.kt            # Cells tab UI
-        ├── InfoScreen.kt             # Info tab UI
-        ├── NvParseUtils.kt           # Shared hex output parsing + byte colouring
-        └── component/
-            ├── FloatingBottomBar.kt  # Liquid-glass navigation bar
-            └── animation/
-                ├── DampedDragAnimation.kt
-                ├── DragGestureInspector.kt
-                └── InteractiveHighlight.kt
+app/src/main/aidl/
+└── dev
+    └── henrik
+        └── mtbtool
+            └── IMtbService.aidl
+app/src/main/java/
+└── dev
+    └── henrik
+        └── mtbtool
+            ├── BandlockManager.kt
+            ├── BandPreferences.kt
+            ├── BulkImporter.kt
+            ├── CellMonitor.kt
+            ├── ExecutionManager.kt
+            ├── FeatureDef.kt
+            ├── FeaturesChecker.kt
+            ├── MainActivity.kt
+            ├── MtbRootService.kt
+            ├── MtbUserService.kt
+            ├── NvImportParser.kt
+            ├── RootManager.kt
+            ├── ShizukuManager.kt
+            └── ui
+                ├── BandlockScreen.kt
+                ├── CellsScreen.kt
+                ├── component
+                │   ├── animation
+                │   │   ├── DampedDragAnimation.kt
+                │   │   ├── DragGestureInspector.kt
+                │   │   └── InteractiveHighlight.kt
+                │   └── FloatingBottomBar.kt
+                ├── effect
+                │   ├── BgEffectBackground.kt
+                │   ├── BgEffectConfig.kt
+                │   ├── BgEffectPainter.kt
+                │   ├── DeviceType.kt
+                │   ├── FrameTimeSeconds.kt
+                │   └── OS3BgFrag.kt
+                ├── FeaturesScreen.kt
+                ├── HomeScreen.kt
+                ├── InfoScreen.kt
+                ├── MainScreen.kt
+                ├── NvParseUtils.kt
+                └── ReadScreen.kt
 ```
 
 ## Requirements
 
 - Android 13+ (minSdk 33)
 - Xiaomi device with Qualcomm modem and `mtb` binary at `/vendor/bin/mtb`
-- **Root access** (granted via su), OR **Shizuku 13+** running on the device
+- **Root access** (NOT required, but can be used if available), OR **Shizuku 13+** running on the device
 
 ## Build
 
@@ -126,6 +131,6 @@ Output: `app/build/outputs/apk/release/app-release-unsigned.apk`
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+[MIT LICENSE](LICENSE).
 
 [tg_badge]: https://img.shields.io/badge/TG-Channel-4991D3?style=for-the-badge&logo=telegram
