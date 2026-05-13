@@ -119,7 +119,7 @@ app/src/main/java/
 
 - Android 13+ (minSdk 33)
 - Xiaomi device with Qualcomm modem and `mtb` binary at `/vendor/bin/mtb`
-- **Root access** (NOT required, but can be used if available), OR **Shizuku 13+** running on the device
+- **Shizuku 13+** running on the device, OR **Root access** (NOT required, but can be used if available)
 
 ## Build
 
