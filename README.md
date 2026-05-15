@@ -1,6 +1,6 @@
 # MTB Tool
 
-An Android app for managing EFS NV items on Xiaomi Qualcomm devices that does not require root. Still supports root access if available and falls back to [Shizuku](https://github.com/RikkaApps/Shizuku) for privileged access to `/vendor/bin/mtb`.
+An Android app for managing EFS NV items on Xiaomi Qualcomm devices that works with root access or root-backed Shizuku. Probes root access and falls back to [Shizuku](https://github.com/RikkaApps/Shizuku) for privileged access to `/vendor/bin/mtb`.
 
 It wraps around the mtb binary located in `/vendor/bin` directory. If this binary does not exist, the app will NOT work! Tested on MIUI/HyperOS devices running Android 13+.
 
@@ -62,7 +62,7 @@ App version, backend description, and device compatibility notes. Also, a HyperO
 The app tries to acquire privileged access in this order:
 
 1. **Root** — binds a `RootService` (libsu 6) running as root UID. Preferred; works without Shizuku.
-2. **Shizuku** — binds a `UserService` running at shell UID. Used automatically if root is not available or denied.
+2. **Shizuku** — binds a `UserService` running at shell UID. Used automatically if root is denied.
 
 At least one backend must be running for any command to execute. The status banner at the top of each tab indicates whether the backend is ready.
 
@@ -119,7 +119,7 @@ app/src/main/java/
 
 - Android 13+ (minSdk 33)
 - Xiaomi device with Qualcomm modem and `mtb` binary at `/vendor/bin/mtb`
-- **Shizuku 13+** running on the device, OR **Root access** (NOT required, but can be used if available)
+- Root-backed **Shizuku 13+** running on the device, OR classic su **Root access**
 
 ## Build
 
