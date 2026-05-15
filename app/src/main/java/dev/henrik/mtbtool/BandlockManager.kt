@@ -39,6 +39,24 @@ object BandlockManager {
     const val PATH_NR            = "/nv/item_files/modem/mmode/nr_band_pref"
     const val PATH_NR_NSA        = "/nv/item_files/modem/mmode/nr_nsa_band_pref"
 
+    const val PATH_LTE_PRIMARY_SIM1   = "/nv/item_files/modem/mmode/lte_bandpref_Subscription01"
+    const val PATH_LTE_EXTENSION_SIM1 = "/nv/item_files/modem/mmode/lte_bandpref_extn_65_256_Subscription01"
+    const val PATH_NR_SIM1            = "/nv/item_files/modem/mmode/nr_band_pref_Subscription01"
+    const val PATH_NR_NSA_SIM1        = "/nv/item_files/modem/mmode/nr_nsa_band_pref_Subscription01"
+
+    /** Returns the four EFS paths to use for the given SIM slot index (0 or 1). */
+    data class SlotPaths(
+        val ltePrimary: String,
+        val lteExtension: String,
+        val nr: String,
+        val nrNsa: String
+    )
+
+    fun pathsForSlot(slot: Int): SlotPaths = when (slot) {
+        1    -> SlotPaths(PATH_LTE_PRIMARY_SIM1, PATH_LTE_EXTENSION_SIM1, PATH_NR_SIM1, PATH_NR_NSA_SIM1)
+        else -> SlotPaths(PATH_LTE_PRIMARY,      PATH_LTE_EXTENSION,      PATH_NR,      PATH_NR_NSA)
+    }
+
     // ── DIAG supported-bands commands ─────────────────────────────────────────
 
     val DIAG_OPEN_ARGS: Array<String> = arrayOf(

@@ -15,7 +15,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -23,6 +26,7 @@ import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawBackdrop
+import com.kyant.backdrop.drawPlainBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.Shadow
@@ -96,13 +100,34 @@ fun InfoScreen(contentPadding: PaddingValues = PaddingValues()) {
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Text(
-                        text = "MTB Tool",
-                        fontSize = 40.sp,
-                        fontWeight = FontWeight.Black,
-                        textAlign = TextAlign.Center,
-                        color = MiuixTheme.colorScheme.onBackground,
-                    )
+                    // Logo blend: background texture shows through the text shape
+                    Box(
+                        modifier = Modifier
+                            .graphicsLayer {
+                                compositingStrategy = CompositingStrategy.Offscreen
+                            }
+                            .drawPlainBackdrop(
+                                backdrop = backdrop,
+                                shape = { RoundedCornerShape(0.dp) },
+                                effects = { blur(150f) },
+                                onDrawSurface = {
+                                    // slight white tint so text isn't fully transparent
+                                    drawRect(Color.White.copy(alpha = 0.25f))
+                                },
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = "MTB Tool",
+                            fontSize = 40.sp,
+                            fontWeight = FontWeight.Black,
+                            textAlign = TextAlign.Center,
+                            color = if (isLightTheme) Color(0xFF222222) else Color(0xFFDDDDDD),
+                            modifier = Modifier.graphicsLayer {
+                                blendMode = BlendMode.DstIn
+                            },
+                        )
+                    }
                     Text(
                         text = "v${BuildConfig.VERSION_NAME}",
                         style = MiuixTheme.textStyles.title4,

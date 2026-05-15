@@ -56,6 +56,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.Velocity
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.SmallTitle
+import top.yukonga.miuix.kmp.basic.TabRow
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
@@ -83,16 +84,25 @@ private val ColorError = Color(0xFFF44336)
 
 // ── BandlockScreen ─────────────────────────────────────────────────────────────
 
+private class SlotBandState {
+    var state by mutableStateOf<BandlockState>(BandlockState.Idle)
+    var showReboot by mutableStateOf(false)
+    var rebootError by mutableStateOf<String?>(null)
+    var rebootInFlight by mutableStateOf(false)
+    val lteChecked   = mutableStateMapOf<Int, Boolean>()
+    val nrNsaChecked = mutableStateMapOf<Int, Boolean>()
+    val nrSaChecked  = mutableStateMapOf<Int, Boolean>()
+}
+
 @Composable
 fun BandlockScreen(
     executionManager: ExecutionManager,
     dataStore: DataStore<Preferences>,
     contentPadding: PaddingValues = PaddingValues()
 ) {
-    var state by remember { mutableStateOf<BandlockState>(BandlockState.Idle) }
-    var rebootError by remember { mutableStateOf<String?>(null) }
-    var rebootInFlight by remember { mutableStateOf(false) }
-    var showReboot by remember { mutableStateOf(false) }
+    val slotStates = remember { arrayOf(SlotBandState(), SlotBandState()) }
+    var activeSlot by remember { mutableStateOf(0) }
+    val current = slotStates[activeSlot]
     var bandSource by remember { mutableStateOf<BandSource?>(null) }
     var showDetectFailedDialog by remember { mutableStateOf(false) }
     var showConfig by remember { mutableStateOf(false) }
@@ -107,42 +117,32 @@ fun BandlockScreen(
     var supportedNrNsa by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var supportedNrSa  by remember { mutableStateOf<Set<Int>>(emptySet()) }
 
-    // Checkbox state: key = band number, value = currently enabled in NV
-    val lteChecked   = remember { mutableStateMapOf<Int, Boolean>() }
-    val nrNsaChecked = remember { mutableStateMapOf<Int, Boolean>() }
-    val nrSaChecked  = remember { mutableStateMapOf<Int, Boolean>() }
-
     // ── Helper: read current NV prefs and populate checkboxes ─────────────────
     // Called after detection (to show current state) and after apply (to reflect written values).
     suspend fun readCurrentPrefs(
         supported_lte: Set<Int>,
         supported_nrNsa: Set<Int>,
-        supported_nrSa: Set<Int>
+        supported_nrSa: Set<Int>,
+        slot: Int
     ) {
-        val rawLtePrimary = executionManager.execMtbWithOutput(
-            arrayOf("4", "4", "0", BandlockManager.PATH_LTE_PRIMARY)
-        )
-        val rawLteExt = executionManager.execMtbWithOutput(
-            arrayOf("4", "4", "0", BandlockManager.PATH_LTE_EXTENSION)
-        )
-        val rawNrNsa = executionManager.execMtbWithOutput(
-            arrayOf("4", "4", "0", BandlockManager.PATH_NR_NSA)
-        )
-        val rawNr = executionManager.execMtbWithOutput(
-            arrayOf("4", "4", "0", BandlockManager.PATH_NR)
-        )
+        val paths = BandlockManager.pathsForSlot(slot)
+        val rawLtePrimary = executionManager.execMtbWithOutput(arrayOf("4", "4", "0", paths.ltePrimary))
+        val rawLteExt     = executionManager.execMtbWithOutput(arrayOf("4", "4", "0", paths.lteExtension))
+        val rawNrNsa      = executionManager.execMtbWithOutput(arrayOf("4", "4", "0", paths.nrNsa))
+        val rawNr         = executionManager.execMtbWithOutput(arrayOf("4", "4", "0", paths.nr))
 
-        val enabledLte = BandlockManager.parseLtePrimary(BandlockManager.parseBytesOrEmpty(rawLtePrimary)) +
-                         BandlockManager.parseLteExtension(BandlockManager.parseBytesOrEmpty(rawLteExt))
+        val enabledLte   = BandlockManager.parseLtePrimary(BandlockManager.parseBytesOrEmpty(rawLtePrimary)) +
+                           BandlockManager.parseLteExtension(BandlockManager.parseBytesOrEmpty(rawLteExt))
         val enabledNrNsa = BandlockManager.parseNrNsa(BandlockManager.parseBytesOrEmpty(rawNrNsa))
         val enabledNr    = BandlockManager.parseNr(BandlockManager.parseBytesOrEmpty(rawNr))
 
-        lteChecked.clear()
-        supported_lte.forEach   { band -> lteChecked[band]   = band in enabledLte }
-        nrNsaChecked.clear()
-        supported_nrNsa.forEach { band -> nrNsaChecked[band] = band in enabledNrNsa }
-        nrSaChecked.clear()
-        supported_nrSa.forEach  { band -> nrSaChecked[band]  = band in enabledNr }
+        val s = slotStates[slot]
+        s.lteChecked.clear()
+        supported_lte.forEach   { band -> s.lteChecked[band]   = band in enabledLte }
+        s.nrNsaChecked.clear()
+        supported_nrNsa.forEach { band -> s.nrNsaChecked[band] = band in enabledNrNsa }
+        s.nrSaChecked.clear()
+        supported_nrSa.forEach  { band -> s.nrSaChecked[band]  = band in enabledNr }
     }
 
     // On start: load persisted bands from DataStore; if configured go straight to Ready
@@ -153,8 +153,8 @@ fun BandlockScreen(
             supportedNrNsa = saved.nrNsa
             supportedNrSa  = saved.nr
             bandSource     = BandSource.Manual
-            readCurrentPrefs(saved.lte, saved.nrNsa, saved.nr)
-            state = BandlockState.Ready
+            readCurrentPrefs(saved.lte, saved.nrNsa, saved.nr, slot = 0)
+            slotStates[0].state = BandlockState.Ready
         }
     }
 
@@ -165,13 +165,15 @@ fun BandlockScreen(
             if (supportedLte.isNotEmpty() || supportedNrNsa.isNotEmpty() || supportedNrSa.isNotEmpty()) {
                 detectInfoMessage = "Backend not ready — your configured bands are still active."
             } else {
-                state = BandlockState.DetectError("Backend not ready")
+                current.state = BandlockState.DetectError("Backend not ready")
                 showDetectFailedDialog = true
             }
             return
         }
-        state = BandlockState.Detecting
+        current.state = BandlockState.Detecting
         scope.launch {
+            val slot = activeSlot
+            val s = slotStates[slot]
             try {
                 executionManager.execMtbWithOutput(BandlockManager.DIAG_OPEN_ARGS)
                 val raw = executionManager.execMtbWithOutput(BandlockManager.DIAG_READ_ARGS)
@@ -180,9 +182,9 @@ fun BandlockScreen(
                 if (diagBytes.isEmpty()) {
                     if (hasBands) {
                         detectInfoMessage = "Hardware-supported bands could not be detected. Your configured bands are still active."
-                        state = BandlockState.Ready
+                        s.state = BandlockState.Ready
                     } else {
-                        state = BandlockState.DetectError("No response from modem — unexpected output format")
+                        s.state = BandlockState.DetectError("No response from modem — unexpected output format")
                         showDetectFailedDialog = true
                     }
                     return@launch
@@ -192,9 +194,9 @@ fun BandlockScreen(
                 if (detected.lte.isEmpty() && detected.nrNsa.isEmpty() && detected.nrSa.isEmpty()) {
                     if (hasBands) {
                         detectInfoMessage = "Hardware-supported bands could not be detected. Your configured bands are still active."
-                        state = BandlockState.Ready
+                        s.state = BandlockState.Ready
                     } else {
-                        state = BandlockState.DetectError("Hardware-supported bands could not be detected.")
+                        s.state = BandlockState.DetectError("Hardware-supported bands could not be detected.")
                         showDetectFailedDialog = true
                     }
                     return@launch
@@ -205,23 +207,23 @@ fun BandlockScreen(
                     // User has manual config — ask whether to switch
                     pendingDiagBands = SavedBands(detected.lte, detected.nrNsa, detected.nrSa)
                     showSwitchToDiagDialog = true
-                    state = BandlockState.Ready
+                    s.state = BandlockState.Ready
                 } else {
                     supportedLte   = detected.lte
                     supportedNrNsa = detected.nrNsa
                     supportedNrSa  = detected.nrSa
-                    readCurrentPrefs(detected.lte, detected.nrNsa, detected.nrSa)
-                    showReboot = false
+                    readCurrentPrefs(detected.lte, detected.nrNsa, detected.nrSa, slot)
+                    s.showReboot = false
                     bandSource = BandSource.Diag
-                    state = BandlockState.Ready
+                    s.state = BandlockState.Ready
                 }
             } catch (e: Exception) {
                 val hasBands = supportedLte.isNotEmpty() || supportedNrNsa.isNotEmpty() || supportedNrSa.isNotEmpty()
                 if (hasBands) {
                     detectInfoMessage = "Hardware-supported bands could not be detected. Your configured bands are still active."
-                    state = BandlockState.Ready
+                    s.state = BandlockState.Ready
                 } else {
-                    state = BandlockState.DetectError(e.message ?: "Unknown error")
+                    s.state = BandlockState.DetectError(e.message ?: "Unknown error")
                     showDetectFailedDialog = true
                 }
             }
@@ -229,7 +231,7 @@ fun BandlockScreen(
     }
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
-    val isBusy = state is BandlockState.Detecting || state is BandlockState.Applying
+    val isBusy = current.state is BandlockState.Detecting || current.state is BandlockState.Applying
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
@@ -241,6 +243,33 @@ fun BandlockScreen(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    TabRow(
+                        tabs             = listOf("SIM 0", "SIM 1"),
+                        selectedTabIndex = activeSlot,
+                        onTabSelected    = { newSlot ->
+                            if (newSlot != activeSlot) {
+                                activeSlot = newSlot
+                                val newCurrent = slotStates[newSlot]
+                                val hasBands = supportedLte.isNotEmpty() ||
+                                               supportedNrNsa.isNotEmpty() ||
+                                               supportedNrSa.isNotEmpty()
+                                if (hasBands && newCurrent.lteChecked.isEmpty()) {
+                                    newCurrent.state = BandlockState.Detecting
+                                    scope.launch {
+                                        try {
+                                            readCurrentPrefs(supportedLte, supportedNrNsa, supportedNrSa, newSlot)
+                                            newCurrent.state = BandlockState.Ready
+                                        } catch (e: Exception) {
+                                            newCurrent.state = BandlockState.DetectError(e.message ?: "Unknown error")
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 4.dp)
+                    )
                     SmallTitle("Detect bands")
                     Button(
                         onClick  = { runDetect() },
@@ -248,8 +277,8 @@ fun BandlockScreen(
                         enabled  = !isBusy,
                         colors   = ButtonDefaults.buttonColorsPrimary()
                     ) {
-                        if (state is BandlockState.Detecting) CircularProgressIndicator()
-                        else Text(if (state is BandlockState.Idle) "Detect Supported Bands" else "Re-detect Supported Bands")
+                        if (current.state is BandlockState.Detecting) CircularProgressIndicator()
+                        else Text(if (current.state is BandlockState.Idle) "Detect Supported Bands" else "Re-detect Supported Bands")
                     }
 
                     // Band source caption — shown once bands are available
@@ -272,7 +301,7 @@ fun BandlockScreen(
                         }
                     }
 
-                    if (state is BandlockState.Idle) {
+                    if (current.state is BandlockState.Idle) {
                         Text(
                             text  = "Reads hardware-supported bands directly from the modem via DIAG, then shows which are currently enabled.",
                             style = MiuixTheme.textStyles.body2,
@@ -308,7 +337,7 @@ fun BandlockScreen(
                     color = MiuixTheme.colorScheme.onSurfaceVariantActions
                 )
             }
-            when (val s = state) {
+            when (val s = current.state) {
                 is BandlockState.DetectError -> Text(
                     text  = s.message,
                     style = MiuixTheme.textStyles.body2,
@@ -324,7 +353,7 @@ fun BandlockScreen(
 
             // ── Band checkboxes ────────────────────────────────────────────────
             val showBands = supportedLte.isNotEmpty() || supportedNrNsa.isNotEmpty() || supportedNrSa.isNotEmpty()
-            val checkboxEnabled = (state is BandlockState.Ready || state is BandlockState.ApplyError) && !isBusy
+            val checkboxEnabled = (current.state is BandlockState.Ready || current.state is BandlockState.ApplyError) && !isBusy
 
             if (showBands) {
                 val lteBands   = supportedLte.sorted()
@@ -341,27 +370,27 @@ fun BandlockScreen(
                 val presetEntries = listOf(
                     DropdownEntry(items = listOf(
                         DropdownItem(text = "Select all bands",   selected = false, onClick = {
-                            lteChecked.keys.forEach   { lteChecked[it]   = true }
-                            nrNsaChecked.keys.forEach { nrNsaChecked[it] = true }
-                            nrSaChecked.keys.forEach  { nrSaChecked[it]  = true }
+                            current.lteChecked.keys.forEach   { current.lteChecked[it]   = true }
+                            current.nrNsaChecked.keys.forEach { current.nrNsaChecked[it] = true }
+                            current.nrSaChecked.keys.forEach  { current.nrSaChecked[it]  = true }
                         }),
                         DropdownItem(text = "Unselect all bands", selected = false, onClick = {
-                            lteChecked.keys.forEach   { lteChecked[it]   = false }
-                            nrNsaChecked.keys.forEach { nrNsaChecked[it] = false }
-                            nrSaChecked.keys.forEach  { nrSaChecked[it]  = false }
+                            current.lteChecked.keys.forEach   { current.lteChecked[it]   = false }
+                            current.nrNsaChecked.keys.forEach { current.nrNsaChecked[it] = false }
+                            current.nrSaChecked.keys.forEach  { current.nrSaChecked[it]  = false }
                         }),
                     )),
                     DropdownEntry(items = listOf(
-                        allEntry("Select all 4G bands",   true,  lteChecked),
-                        allEntry("Unselect all 4G bands", false, lteChecked),
+                        allEntry("Select all 4G bands",   true,  current.lteChecked),
+                        allEntry("Unselect all 4G bands", false, current.lteChecked),
                     )),
                     DropdownEntry(items = listOf(
-                        allEntry("Select all 5G NSA bands",   true,  nrNsaChecked),
-                        allEntry("Unselect all 5G NSA bands", false, nrNsaChecked),
+                        allEntry("Select all 5G NSA bands",   true,  current.nrNsaChecked),
+                        allEntry("Unselect all 5G NSA bands", false, current.nrNsaChecked),
                     )),
                     DropdownEntry(items = listOf(
-                        allEntry("Select all 5G SA bands",   true,  nrSaChecked),
-                        allEntry("Unselect all 5G SA bands", false, nrSaChecked),
+                        allEntry("Select all 5G SA bands",   true,  current.nrSaChecked),
+                        allEntry("Unselect all 5G SA bands", false, current.nrSaChecked),
                     )),
                 )
 
@@ -395,10 +424,10 @@ fun BandlockScreen(
                         Card {
                             BandCheckboxGrid(
                                 bands           = lteBands,
-                                checked         = lteChecked,
+                                checked         = current.lteChecked,
                                 prefix          = "B",
                                 enabled         = checkboxEnabled,
-                                onCheckedChange = { band, checked -> lteChecked[band] = checked }
+                                onCheckedChange = { band, checked -> current.lteChecked[band] = checked }
                             )
                         }
                     }
@@ -412,10 +441,10 @@ fun BandlockScreen(
                         Card {
                             BandCheckboxGrid(
                                 bands           = nrNsaBands,
-                                checked         = nrNsaChecked,
+                                checked         = current.nrNsaChecked,
                                 prefix          = "N",
                                 enabled         = checkboxEnabled,
-                                onCheckedChange = { band, checked -> nrNsaChecked[band] = checked }
+                                onCheckedChange = { band, checked -> current.nrNsaChecked[band] = checked }
                             )
                         }
                     }
@@ -429,81 +458,84 @@ fun BandlockScreen(
                         Card {
                             BandCheckboxGrid(
                                 bands           = nrSaBands,
-                                checked         = nrSaChecked,
+                                checked         = current.nrSaChecked,
                                 prefix          = "N",
                                 enabled         = checkboxEnabled,
-                                onCheckedChange = { band, checked -> nrSaChecked[band] = checked }
+                                onCheckedChange = { band, checked -> current.nrSaChecked[band] = checked }
                             )
                         }
                     }
 
-                    if (state is BandlockState.Ready ||
-                        state is BandlockState.Applying ||
-                        state is BandlockState.ApplyError
+                    if (current.state is BandlockState.Ready ||
+                        current.state is BandlockState.Applying ||
+                        current.state is BandlockState.ApplyError
                     ) {
                         Button(
                             onClick = {
                                 if (!executionManager.isReady) {
-                                    state = BandlockState.ApplyError("Backend not ready")
+                                    current.state = BandlockState.ApplyError("Backend not ready")
                                     return@Button
                                 }
-                                state = BandlockState.Applying
+                                current.state = BandlockState.Applying
                                 scope.launch {
+                                    val slot = activeSlot
+                                    val s = slotStates[slot]
+                                    val paths = BandlockManager.pathsForSlot(slot)
                                     try {
-                                        val chosenLte   = lteChecked.filterValues  { it }.keys
-                                        val chosenNrNsa = nrNsaChecked.filterValues { it }.keys
-                                        val chosenNrSa  = nrSaChecked.filterValues  { it }.keys
+                                        val chosenLte   = s.lteChecked.filterValues  { it }.keys
+                                        val chosenNrNsa = s.nrNsaChecked.filterValues { it }.keys
+                                        val chosenNrSa  = s.nrSaChecked.filterValues  { it }.keys
 
                                         val ltePrimaryBytes = BandlockManager.buildLtePrimary(chosenLte)
                                         executionManager.execMtbWithOutput(
-                                            arrayOf("4", "5", "0", BandlockManager.PATH_LTE_PRIMARY) +
+                                            arrayOf("4", "5", "0", paths.ltePrimary) +
                                             ltePrimaryBytes.map { it.toString() }.toTypedArray()
                                         )
 
                                         val lteExtBytes = BandlockManager.buildLteExtension(chosenLte)
                                         executionManager.execMtbWithOutput(
-                                            arrayOf("4", "5", "0", BandlockManager.PATH_LTE_EXTENSION) +
+                                            arrayOf("4", "5", "0", paths.lteExtension) +
                                             lteExtBytes.map { it.toString() }.toTypedArray()
                                         )
 
                                         val nrNsaBytes = BandlockManager.buildNrNsa(chosenNrNsa)
                                         executionManager.execMtbWithOutput(
-                                            arrayOf("4", "5", "0", BandlockManager.PATH_NR_NSA) +
+                                            arrayOf("4", "5", "0", paths.nrNsa) +
                                             nrNsaBytes.map { it.toString() }.toTypedArray()
                                         )
 
                                         val nrSaBytes = BandlockManager.buildNr(chosenNrSa)
                                         executionManager.execMtbWithOutput(
-                                            arrayOf("4", "5", "0", BandlockManager.PATH_NR) +
+                                            arrayOf("4", "5", "0", paths.nr) +
                                             nrSaBytes.map { it.toString() }.toTypedArray()
                                         )
 
-                                        readCurrentPrefs(supportedLte, supportedNrNsa, supportedNrSa)
-                                        showReboot = true
-                                        rebootError = null
-                                        state = BandlockState.Ready
+                                        readCurrentPrefs(supportedLte, supportedNrNsa, supportedNrSa, slot)
+                                        s.showReboot = true
+                                        s.rebootError = null
+                                        s.state = BandlockState.Ready
                                     } catch (e: Exception) {
-                                        state = BandlockState.ApplyError(e.message ?: "Unknown error")
+                                        s.state = BandlockState.ApplyError(e.message ?: "Unknown error")
                                     }
                                 }
                             },
                             modifier = Modifier.fillMaxWidth(),
-                            enabled  = state is BandlockState.Ready || state is BandlockState.ApplyError,
+                            enabled  = current.state is BandlockState.Ready || current.state is BandlockState.ApplyError,
                             colors   = ButtonDefaults.buttonColorsPrimary()
                         ) {
-                            if (state is BandlockState.Applying) CircularProgressIndicator()
+                            if (current.state is BandlockState.Applying) CircularProgressIndicator()
                             else Text("Apply Bandlock")
                         }
                     }
 
                     // ── Reboot section ─────────────────────────────────────────
-                    if (showReboot) {
+                    if (current.showReboot) {
                         Text(
                             text  = "Bandlock applied. Reboot the modem to activate.",
                             style = MiuixTheme.textStyles.body2,
                             color = MiuixTheme.colorScheme.onBackground
                         )
-                        rebootError?.let { err ->
+                        current.rebootError?.let { err ->
                             Text(
                                 text  = "Reboot error: $err",
                                 style = MiuixTheme.textStyles.body2,
@@ -512,23 +544,24 @@ fun BandlockScreen(
                         }
                         Button(
                             onClick = {
-                                if (rebootInFlight) return@Button
-                                rebootInFlight = true
-                                rebootError    = null
+                                if (current.rebootInFlight) return@Button
+                                val s = current
+                                s.rebootInFlight = true
+                                s.rebootError    = null
                                 scope.launch {
                                     try {
                                         executionManager.execMtb(arrayOf("11", "0"))
                                     } catch (e: Exception) {
-                                        rebootError = e.message ?: "Unknown error"
+                                        s.rebootError = e.message ?: "Unknown error"
                                     } finally {
-                                        rebootInFlight = false
+                                        s.rebootInFlight = false
                                     }
                                 }
                             },
                             modifier = Modifier.fillMaxWidth(),
-                            enabled  = !rebootInFlight
+                            enabled  = !current.rebootInFlight
                         ) {
-                            if (rebootInFlight) CircularProgressIndicator()
+                            if (current.rebootInFlight) CircularProgressIndicator()
                             else Text("Reboot Modem")
                         }
                     }
@@ -545,9 +578,10 @@ fun BandlockScreen(
             supportedNrNsa = saved.nrNsa
             supportedNrSa  = saved.nr
             bandSource     = BandSource.Manual
+            val capturedSlot = activeSlot
             scope.launch {
-                readCurrentPrefs(saved.lte, saved.nrNsa, saved.nr)
-                state = BandlockState.Ready
+                readCurrentPrefs(saved.lte, saved.nrNsa, saved.nr, capturedSlot)
+                slotStates[capturedSlot].state = BandlockState.Ready
             }
         },
         onDismiss = { showConfig = false },
@@ -595,18 +629,20 @@ fun BandlockScreen(
                 text     = "Use detected bands",
                 onClick  = {
                     showSwitchToDiagDialog = false
-                    pendingDiagBands?.let { bands ->
-                        scope.launch {
-                            supportedLte   = bands.lte
-                            supportedNrNsa = bands.nrNsa
-                            supportedNrSa  = bands.nr
-                            readCurrentPrefs(bands.lte, bands.nrNsa, bands.nr)
-                            showReboot = false
-                            bandSource = BandSource.Diag
-                            detectInfoMessage = null
+                        pendingDiagBands?.let { bands ->
+                            val slot = activeSlot
+                            val s = slotStates[slot]
+                            scope.launch {
+                                supportedLte   = bands.lte
+                                supportedNrNsa = bands.nrNsa
+                                supportedNrSa  = bands.nr
+                                readCurrentPrefs(bands.lte, bands.nrNsa, bands.nr, slot)
+                                s.showReboot = false
+                                bandSource = BandSource.Diag
+                                detectInfoMessage = null
+                            }
+                            pendingDiagBands = null
                         }
-                        pendingDiagBands = null
-                    }
                 },
                 modifier = Modifier.weight(1f),
                 colors   = ButtonDefaults.textButtonColorsPrimary()
