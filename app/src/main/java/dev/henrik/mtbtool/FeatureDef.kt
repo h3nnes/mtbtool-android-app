@@ -186,6 +186,18 @@ val ALL_FEATURES: List<FeatureDef> = listOf(
         }
     ),
     FeatureDef(
+        id = "segmentation",
+        label = "Disable Segmentation",
+        reads = listOf(NR_BASE + "cap_msg_segmentation"),
+        writes = listOf(
+            NvWrite(NR_BASE + "cap_msg_segmentation", "0")
+        ),
+        isDisabled = { byteArrays ->
+            val b = byteArrays.firstOrNull() ?: return@FeatureDef true
+            b.firstOrNull() == 0
+        }
+    ),
+    FeatureDef(
         id = "dss",
         label = "Disable DSS",
         reads = listOf(NR_BASE + "cap_dss_control"),

@@ -51,10 +51,10 @@ import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-private val techOptions = listOf("4G LTE EFS", "5G NR RRC", "Custom Path")
+private val techOptions = listOf("4G LTE EFS", "5G NR RRC", "mmode dir", "Custom Path")
 private const val PATH_4G = "/nv/item_files/modem/lte/rrc/efs/"
-
 private const val PATH_5G = "/nv/item_files/modem/nr5g/RRC/"
+private const val PATH_MMODE = "/nv/item_files/modem/mmode/"
 
 sealed class ReadState {
     object Idle : ReadState()
@@ -75,6 +75,7 @@ fun ReadScreen(
     val basePath = when (techIndex) {
         0 -> PATH_4G
         1 -> PATH_5G
+        2 -> PATH_MMODE
         else -> customPath.trim().trimEnd('/') + "/"
     }
     var readState by remember { mutableStateOf<ReadState>(ReadState.Idle) }
@@ -145,7 +146,7 @@ fun ReadScreen(
                                 onClick = { doQuery() },
                                 enabled = itemName.trim().isNotEmpty()
                                     && readState !is ReadState.Loading
-                                    && !(techIndex == 2 && customPath.trim().isEmpty()),
+                                     && !(techIndex == 3 && customPath.trim().isEmpty()),
                                 colors = ButtonDefaults.buttonColorsPrimary()
                             ) {
                                 Text("Send")
@@ -162,7 +163,7 @@ fun ReadScreen(
                             )
                         }
 
-                        if (techIndex == 2) {
+                        if (techIndex == 3) {
                             TextField(
                                 value = customPath,
                                 onValueChange = { customPath = it },
