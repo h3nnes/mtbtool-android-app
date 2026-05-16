@@ -24,6 +24,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.state.ToggleableState
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -49,12 +51,14 @@ import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.window.WindowDialog
+import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.Velocity
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
+import top.yukonga.miuix.kmp.basic.SnackbarDuration
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.TabRow
 import top.yukonga.miuix.kmp.basic.TopAppBar
@@ -111,6 +115,8 @@ fun BandlockScreen(
     var showSwitchToDiagDialog by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
+    val hapticFeedback = LocalHapticFeedback.current
+    val rebootSnackbar = LocalRebootSnackbar.current
 
     // Hardware-supported band sets — fixed after first detection
     var supportedLte   by remember { mutableStateOf<Set<Int>>(emptySet()) }
@@ -248,6 +254,7 @@ fun BandlockScreen(
                         selectedTabIndex = activeSlot,
                         onTabSelected    = { newSlot ->
                             if (newSlot != activeSlot) {
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
                                 activeSlot = newSlot
                                 val newCurrent = slotStates[newSlot]
                                 val hasBands = supportedLte.isNotEmpty() ||
@@ -272,7 +279,10 @@ fun BandlockScreen(
                     )
                     SmallTitle("Detect bands")
                     Button(
-                        onClick  = { runDetect() },
+                        onClick  = {
+                            hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
+                            runDetect()
+                        },
                         modifier = Modifier.fillMaxWidth(),
                         enabled  = !isBusy,
                         colors   = ButtonDefaults.buttonColorsPrimary()
@@ -325,7 +335,10 @@ fun BandlockScreen(
                 ArrowPreference(
                     title   = "Configure bands manually",
                     summary = "Set supported bands for your device",
-                    onClick = { if (!isBusy) showConfig = true }
+                    onClick = {
+                            hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
+                            if (!isBusy) showConfig = true
+                        }
                 )
             }
 
@@ -411,6 +424,7 @@ fun BandlockScreen(
                         .weight(1f)
                         .fillMaxWidth()
                         .verticalScroll(scrollState)
+                        .scrollEndHaptic()
                         .padding(bottom = contentPadding.calculateBottomPadding()),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
@@ -472,6 +486,7 @@ fun BandlockScreen(
                     ) {
                         Button(
                             onClick = {
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
                                 if (!executionManager.isReady) {
                                     current.state = BandlockState.ApplyError("Backend not ready")
                                     return@Button
@@ -544,6 +559,7 @@ fun BandlockScreen(
                         }
                         Button(
                             onClick = {
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
                                 if (current.rebootInFlight) return@Button
                                 val s = current
                                 s.rebootInFlight = true
@@ -551,6 +567,10 @@ fun BandlockScreen(
                                 scope.launch {
                                     try {
                                         executionManager.execMtb(arrayOf("11", "0"))
+                                        rebootSnackbar.showSnackbar(
+                                            message = REBOOT_SNACKBAR_MSG,
+                                            duration = SnackbarDuration.Custom(6000)
+                                        )
                                     } catch (e: Exception) {
                                         s.rebootError = e.message ?: "Unknown error"
                                     } finally {
@@ -596,13 +616,17 @@ fun BandlockScreen(
         Row(horizontalArrangement = Arrangement.SpaceBetween) {
             TextButton(
                 text     = "Dismiss",
-                onClick  = { showDetectFailedDialog = false },
+                onClick  = {
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
+                    showDetectFailedDialog = false
+                },
                 modifier = Modifier.weight(1f)
             )
             Spacer(Modifier.width(20.dp))
             TextButton(
                 text     = "Configure manually",
                 onClick  = {
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
                     showDetectFailedDialog = false
                     showConfig = true
                 },
@@ -621,13 +645,17 @@ fun BandlockScreen(
         Row(horizontalArrangement = Arrangement.SpaceBetween) {
             TextButton(
                 text     = "Keep my configuration",
-                onClick  = { showSwitchToDiagDialog = false; pendingDiagBands = null },
+                onClick  = {
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
+                    showSwitchToDiagDialog = false; pendingDiagBands = null
+                },
                 modifier = Modifier.weight(1f)
             )
             Spacer(Modifier.width(20.dp))
             TextButton(
                 text     = "Use detected bands",
                 onClick  = {
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
                     showSwitchToDiagDialog = false
                         pendingDiagBands?.let { bands ->
                             val slot = activeSlot
@@ -708,6 +736,7 @@ private fun BandConfigBottomSheet(
     val nrChecked    = remember { mutableStateMapOf<Int, Boolean>() }
     var saveError    by remember { mutableStateOf<String?>(null) }
     val scope        = rememberCoroutineScope()
+    val hapticFeedback = LocalHapticFeedback.current
 
     // Load saved bands whenever the sheet opens
     LaunchedEffect(show) {
@@ -787,7 +816,10 @@ private fun BandConfigBottomSheet(
         title            = "Configure bands manually",
         onDismissRequest = onDismiss,
         startAction      = {
-            IconButton(onClick = onDismiss) {
+            IconButton(onClick = {
+                hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
+                onDismiss()
+            }) {
                 Icon(
                     imageVector        = MiuixIcons.Close,
                     contentDescription = "Discard",
@@ -798,6 +830,7 @@ private fun BandConfigBottomSheet(
         endAction = {
             IconButton(
                 onClick = {
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
                     saveError = null
                     scope.launch {
                         try {
@@ -826,6 +859,7 @@ private fun BandConfigBottomSheet(
                 .fillMaxWidth()
                 .nestedScroll(consumeUpwardWhenScrolled)
                 .verticalScroll(sheetScrollState)
+                .scrollEndHaptic()
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {

@@ -27,6 +27,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import dev.henrik.mtbtool.ALL_FEATURES
 import dev.henrik.mtbtool.FeatureDef
@@ -42,6 +44,7 @@ import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.SmallTitle
+import top.yukonga.miuix.kmp.basic.SnackbarDuration
 import top.yukonga.miuix.kmp.basic.TabRow
 import top.yukonga.miuix.kmp.basic.TabRowWithContour
 import top.yukonga.miuix.kmp.basic.Text
@@ -50,6 +53,7 @@ import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 import top.yukonga.miuix.kmp.window.WindowDialog
 
 private val simOptions = listOf("SIM 0", "SIM 1")
@@ -90,6 +94,8 @@ fun FeaturesScreen(
     var nrModeState by remember { mutableStateOf<NrModeState>(NrModeState.Idle) }
     var pendingNrIndex by remember { mutableStateOf<Int?>(null) }
     val scope = rememberCoroutineScope()
+    val hapticFeedback = LocalHapticFeedback.current
+    val rebootSnackbar = LocalRebootSnackbar.current
 
     suspend fun readNrMode() {
         nrModeState = NrModeState.Loading
@@ -152,6 +158,7 @@ fun FeaturesScreen(
                                 nrModeState = NrModeState.Error("Backend not ready")
                                 return@TabRow
                             }
+                            hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
                             pendingNrIndex = newIndex
                         }
                     )
@@ -170,6 +177,7 @@ fun FeaturesScreen(
                     // ── Check button ──────────────────────────────────────────────
                     Button(
                         onClick = {
+                            hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
                             if (!executionManager.isReady) {
                                 state = FeaturesState.CheckError("Backend not ready")
                                 return@Button
@@ -199,6 +207,7 @@ fun FeaturesScreen(
                         selectedTabIndex = simSlot,
                         onTabSelected = { idx ->
                             if (idx != simSlot) {
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
                                 simSlot = idx
                                 state = FeaturesState.Idle
                             }
@@ -215,6 +224,7 @@ fun FeaturesScreen(
                 .fillMaxWidth()
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
                 .verticalScroll(rememberScrollState())
+                .scrollEndHaptic()
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -266,6 +276,30 @@ fun FeaturesScreen(
                                                            else FeatureStatus.WriteError(error)
                                         state = FeaturesState.Checked(current, s.originalBytes)
                                     }
+                                },
+                                onRestore = {
+                                    val slot = simSlot
+                                    val orig = s.originalBytes[feature] ?: return@FeatureRow
+                                    val updated = s.results.toMutableMap()
+                                    updated[feature] = FeatureStatus.Restoring
+                                    state = FeaturesState.Checked(updated, s.originalBytes)
+                                    scope.launch {
+                                        val error = restoreFeature(feature, orig, slot, executionManager)
+                                        val current = (state as? FeaturesState.Checked)?.results?.toMutableMap()
+                                            ?: return@launch
+                                        current[feature] = if (error == null) {
+                                            if (orig.any { it == null }) {
+                                                FeatureStatus.CanDisable
+                                            } else if (feature.isDisabled(orig.filterNotNull())) {
+                                                FeatureStatus.AlreadyDisabled
+                                            } else {
+                                                FeatureStatus.CanDisable
+                                            }
+                                        } else {
+                                            FeatureStatus.WriteError(error)
+                                        }
+                                        state = FeaturesState.Checked(current, s.originalBytes)
+                                    }
                                 }
                             )
                         }
@@ -274,6 +308,7 @@ fun FeaturesScreen(
                     if (s.originalBytes.isNotEmpty()) {
                         Button(
                             onClick = {
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
                                 if (!executionManager.isReady) return@Button
                                 val updated = s.results.toMutableMap()
                                 s.originalBytes.keys.forEach { feature ->
@@ -311,13 +346,18 @@ fun FeaturesScreen(
                             },
                             modifier = Modifier.fillMaxWidth(),
                             enabled = canRestore,
-                        ) { Text("Restore original values") }
+                        ) { Text("Restore all original states") }
                     }
 
                     Button(
                         onClick = {
+                            hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
                             scope.launch {
                                 executionManager.execMtb(arrayOf("11", "0"))
+                                rebootSnackbar.showSnackbar(
+                                    message = REBOOT_SNACKBAR_MSG,
+                                    duration = SnackbarDuration.Custom(6000)
+                                )
                             }
                         },
                         modifier = Modifier.fillMaxWidth(),
@@ -342,13 +382,17 @@ fun FeaturesScreen(
             Row(horizontalArrangement = Arrangement.SpaceBetween) {
                 TextButton(
                     text = "Abort",
-                    onClick = { pendingNrIndex = null },
+                    onClick = {
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
+                        pendingNrIndex = null
+                    },
                     modifier = Modifier.weight(1f)
                 )
                 Spacer(Modifier.width(20.dp))
                 TextButton(
                     text = "Apply",
                     onClick = {
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
                         pendingNrIndex = null
                         nrModeState = NrModeState.Writing
                         scope.launch {
@@ -365,6 +409,10 @@ fun FeaturesScreen(
                                 }
                                 if (exitCode == 0) {
                                     executionManager.execMtb(arrayOf("11", "0"))
+                                    rebootSnackbar.showSnackbar(
+                                        message = REBOOT_SNACKBAR_MSG,
+                                        duration = SnackbarDuration.Custom(6000)
+                                    )
                                 }
                             } catch (e: Exception) {
                                 nrModeState = NrModeState.Error(e.message ?: "Unknown error")
@@ -383,7 +431,8 @@ fun FeaturesScreen(
 private fun FeatureRow(
     feature: FeatureDef,
     status: FeatureStatus,
-    onDisable: () -> Unit
+    onDisable: () -> Unit,
+    onRestore: () -> Unit
 ) {
     when (status) {
         is FeatureStatus.Writing, is FeatureStatus.Restoring -> {
@@ -424,16 +473,17 @@ private fun FeatureRow(
         }
         is FeatureStatus.CanDisable, is FeatureStatus.AlreadyDisabled -> {
             val isChecked = status is FeatureStatus.AlreadyDisabled
-            val isEnabled = status is FeatureStatus.CanDisable
             SwitchPreference(
                 title = feature.label,
                 checked = isChecked,
                 onCheckedChange = { nowChecked ->
                     if (nowChecked && status is FeatureStatus.CanDisable) {
                         onDisable()
+                    } else if (!nowChecked && status is FeatureStatus.AlreadyDisabled) {
+                        onRestore()
                     }
                 },
-                enabled = isEnabled,
+                enabled = true,
             )
         }
     }

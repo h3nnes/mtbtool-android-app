@@ -36,6 +36,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import dev.henrik.mtbtool.ExecutionManager
 import kotlinx.coroutines.launch
@@ -50,6 +52,7 @@ import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 
 private val techOptions = listOf("4G LTE EFS", "5G NR RRC", "mmode dir", "Custom Path")
 private const val PATH_4G = "/nv/item_files/modem/lte/rrc/efs/"
@@ -81,6 +84,7 @@ fun ReadScreen(
     var readState by remember { mutableStateOf<ReadState>(ReadState.Idle) }
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
+    val hapticFeedback = LocalHapticFeedback.current
 
     fun doQuery() {
         val name = itemName.trim()
@@ -143,7 +147,10 @@ fun ReadScreen(
                                 modifier = Modifier.weight(1f)
                             )
                             Button(
-                                onClick = { doQuery() },
+                                onClick = {
+                                    hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
+                                    doQuery()
+                                },
                                 enabled = itemName.trim().isNotEmpty()
                                     && readState !is ReadState.Loading
                                      && !(techIndex == 3 && customPath.trim().isEmpty()),
@@ -235,7 +242,8 @@ fun ReadScreen(
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxWidth()
-                                .verticalScroll(scrollState),
+                                .verticalScroll(scrollState)
+                                .scrollEndHaptic(),
                             verticalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
                             Spacer(Modifier.height(16.dp))

@@ -1,6 +1,8 @@
 package dev.henrik.mtbtool.ui
 
 import android.os.Build
+import android.widget.Toast
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
@@ -40,6 +43,7 @@ private val CardShape = RoundedCornerShape(28.dp)
 @Composable
 fun InfoScreen(contentPadding: PaddingValues = PaddingValues()) {
     val isLightTheme = !isSystemInDarkTheme()
+    val context = LocalContext.current
 
     // Only use the animated shader on API 33+ (always true for this app, minSdk=33).
     // Guard retained for clarity.
@@ -117,6 +121,10 @@ fun InfoScreen(contentPadding: PaddingValues = PaddingValues()) {
                             ),
                         contentAlignment = Alignment.Center,
                     ) {
+                        Box(modifier = Modifier.combinedClickable(
+                            onLongClick = { Toast.makeText(context, "🇺🇦🎗️💙💛", Toast.LENGTH_LONG).show() },
+                            onClick = {},
+                        )) {
                         Text(
                             text = "MTB Tool",
                             fontSize = 40.sp,
@@ -127,13 +135,19 @@ fun InfoScreen(contentPadding: PaddingValues = PaddingValues()) {
                                 blendMode = BlendMode.DstIn
                             },
                         )
+                        }
                     }
+                    Box(modifier = Modifier.combinedClickable(
+                        onLongClick = { Toast.makeText(context, "🇺🇦🎗️💙💛", Toast.LENGTH_LONG).show() },
+                        onClick = {},
+                    )) {
                     Text(
                         text = "v${BuildConfig.VERSION_NAME}",
                         style = MiuixTheme.textStyles.title4,
                         textAlign = TextAlign.Center,
                         color = MiuixTheme.colorScheme.onSurfaceVariantActions,
                     )
+                    }
                 }
 
                 // Description card

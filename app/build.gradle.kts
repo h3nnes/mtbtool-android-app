@@ -11,8 +11,8 @@ android {
         applicationId = "dev.henrik.mtbtool"
         minSdk = 33
         targetSdk = 37
-        versionCode = 19
-        versionName = "2.2.0"
+        versionCode = 20
+        versionName = "2.3.0"
         ndk {
             abiFilters += listOf("arm64-v8a")
         }

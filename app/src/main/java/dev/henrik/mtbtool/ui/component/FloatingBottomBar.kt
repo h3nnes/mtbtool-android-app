@@ -49,6 +49,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastCoerceIn
 import androidx.compose.ui.util.fastRoundToInt
 import androidx.compose.ui.util.lerp
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
@@ -82,6 +84,7 @@ fun RowScope.FloatingBottomBarItem(
     content: @Composable ColumnScope.() -> Unit
 ) {
     val scale = LocalFloatingBottomBarTabScale.current
+    val hapticFeedback = LocalHapticFeedback.current
     Column(
         modifier
             .clip(CircleShape)
@@ -89,7 +92,10 @@ fun RowScope.FloatingBottomBarItem(
                 interactionSource = null,
                 indication = null,
                 role = Role.Tab,
-                onClick = onClick
+                onClick = {
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
+                    onClick()
+                }
             )
             .fillMaxHeight()
             .weight(1f)
@@ -123,6 +129,8 @@ fun FloatingBottomBar(
     } else {
         MiuixTheme.colorScheme.surfaceContainer
     }
+
+    val hapticFeedback = LocalHapticFeedback.current
 
     val tabsBackdrop = rememberLayerBackdrop()
     val density = LocalDensity.current
@@ -179,6 +187,9 @@ fun FloatingBottomBar(
             onDragStarted = {},
             onDragStopped = {
                 val targetIndex = targetValue.fastRoundToInt().fastCoerceIn(0, tabsCount - 1)
+                if (targetIndex != currentIndex) {
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
+                }
                 currentIndex = targetIndex
                 animateToValue(targetIndex.toFloat())
                 animationScope.launch {

@@ -24,8 +24,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
+import top.yukonga.miuix.kmp.basic.SnackbarDuration
+import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 import dev.henrik.mtbtool.BulkImporter
 import dev.henrik.mtbtool.ImportCommand
 import dev.henrik.mtbtool.NvImportParser
@@ -59,6 +63,8 @@ fun HomeScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val hapticFeedback = LocalHapticFeedback.current
+    val rebootSnackbar = LocalRebootSnackbar.current
 
     val filePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -109,7 +115,7 @@ fun HomeScreen(
                                     color = MiuixTheme.colorScheme.onBackground
                                 )
                                 Button(
-                                    onClick = { filePicker.launch(arrayOf("text/plain", "application/json")) },
+                                    onClick = { hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm); filePicker.launch(arrayOf("text/plain", "application/json")) },
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Text("Select .txt or .json file")
@@ -124,13 +130,14 @@ fun HomeScreen(
                                     color = MiuixTheme.colorScheme.onSurfaceVariantActions
                                 )
                                 Button(
-                                    onClick = { filePicker.launch(arrayOf("text/plain", "application/json")) },
+                                    onClick = { hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm); filePicker.launch(arrayOf("text/plain", "application/json")) },
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Text("Change file")
                                 }
                                 Button(
                                     onClick = {
+                                        hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
                                         if (!executionManager.isReady) {
                                             onErrorChange("Backend not ready")
                                             return@Button
@@ -185,8 +192,13 @@ fun HomeScreen(
                                 if (s.fail == 0) {
                                     Button(
                                         onClick = {
+                                            hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
                                             scope.launch {
                                                 executionManager.execMtb(arrayOf("11", "0"))
+                                                rebootSnackbar.showSnackbar(
+                                                    message = REBOOT_SNACKBAR_MSG,
+                                                    duration = SnackbarDuration.Custom(6000)
+                                                )
                                             }
                                         },
                                         modifier = Modifier.fillMaxWidth(),
@@ -196,7 +208,7 @@ fun HomeScreen(
                                     }
                                 }
                                 Button(
-                                    onClick = { onStateChange(HomeState.Idle); onErrorChange(null) },
+                                    onClick = { hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm); onStateChange(HomeState.Idle); onErrorChange(null) },
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Text("Start over")
@@ -231,6 +243,7 @@ fun HomeScreen(
 
 @Composable
 private fun BackendBanner(onGrantClick: () -> Unit) {
+    val hapticFeedback = LocalHapticFeedback.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -243,7 +256,7 @@ private fun BackendBanner(onGrantClick: () -> Unit) {
             style = MiuixTheme.textStyles.body2,
             modifier = Modifier.weight(1f)
         )
-        Button(onClick = onGrantClick) { Text("Grant") }
+        Button(onClick = { hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm); onGrantClick() }) { Text("Grant") }
     }
 }
 
@@ -263,7 +276,7 @@ private fun ResultList(
 
     LazyColumn(
         state = listState,
-        modifier = modifier,
+        modifier = modifier.scrollEndHaptic(),
         verticalArrangement = Arrangement.spacedBy(4.dp),
         contentPadding = contentPadding
     ) {

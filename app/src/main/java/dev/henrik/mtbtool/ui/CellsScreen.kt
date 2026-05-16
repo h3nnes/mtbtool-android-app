@@ -16,7 +16,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalHapticFeedback
+import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
@@ -66,6 +69,7 @@ fun CellsScreen(
 ) {
     val scrollState = rememberScrollState()
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val hapticFeedback = LocalHapticFeedback.current
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
@@ -78,7 +82,10 @@ fun CellsScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Button(
-                        onClick  = onToggleLogging,
+                        onClick  = {
+                            hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
+                            onToggleLogging()
+                        },
                         modifier = Modifier.fillMaxWidth(),
                         colors   = if (isLogging) ButtonDefaults.buttonColors()
                                    else ButtonDefaults.buttonColorsPrimary()
@@ -90,7 +97,12 @@ fun CellsScreen(
                         TabRow(
                             tabs = simOptions,
                             selectedTabIndex = simSlot,
-                            onTabSelected = { if (it != simSlot) onSimSlotChange(it) },
+                            onTabSelected = {
+                                if (it != simSlot) {
+                                    hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
+                                    onSimSlotChange(it)
+                                }
+                            },
                         )
                     }
 
@@ -117,6 +129,7 @@ fun CellsScreen(
                 .weight(1f)
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
                 .verticalScroll(scrollState)
+                .scrollEndHaptic()
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
