@@ -272,7 +272,7 @@ fun MainScreen(
         Box(modifier = Modifier.fillMaxSize()) {
             HorizontalPager(
             state = pagerState,
-            beyondViewportPageCount = 1,
+            beyondViewportPageCount = 2,
             userScrollEnabled = true,
             modifier = Modifier.fillMaxSize().layerBackdrop(backdrop)
         ) { page ->

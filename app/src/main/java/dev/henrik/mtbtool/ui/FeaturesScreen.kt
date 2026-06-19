@@ -37,7 +37,9 @@ import dev.henrik.mtbtool.ExecutionManager
 import dev.henrik.mtbtool.checkAll
 import dev.henrik.mtbtool.disableFeature
 import dev.henrik.mtbtool.restoreFeature
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
@@ -101,9 +103,11 @@ fun FeaturesScreen(
         nrModeState = NrModeState.Loading
         try {
             // NV item is modem-global; always use slot 0
-            val raw = executionManager.execMtbWithOutput(
-                arrayOf("4", "4", "0", PATH_NR5G_MODE)
-            )
+            val raw = withContext(Dispatchers.IO) {
+                executionManager.execMtbWithOutput(
+                    arrayOf("4", "4", "0", PATH_NR5G_MODE)
+                )
+            }
             val exitLine = raw.lines().firstOrNull() ?: ""
             val exitCode = exitLine.removePrefix("EXIT:").toIntOrNull() ?: -1
             val output = raw.lines().drop(1).joinToString("\n")
@@ -125,8 +129,8 @@ fun FeaturesScreen(
         }
     }
 
-    // Auto-read on first composition
-    LaunchedEffect(Unit) {
+    // Auto-read when execution manager becomes ready (fires again if backend connects late)
+    LaunchedEffect(executionManager.isReady) {
         if (executionManager.isReady) {
             readNrMode()
         }
