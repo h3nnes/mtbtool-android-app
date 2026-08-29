@@ -51,7 +51,11 @@ val ALL_FEATURES: List<FeatureDef> = listOf(
         label = "Disable R16 2T1T UL Tx Switching",
         reads = listOf(
             NR_BASE + "cap_control_nrca_xf_plus_yt_swul_band_combos_v2",
-            NR_BASE + "cap_swul_type_control"
+            NR_BASE + "cap_swul_type_control",
+            NR_BASE + "cap_swul_control",
+            NR_BASE + "cap_swul_3x_control",
+            NR_BASE + "cap_swul_4x_control",
+            NR_BASE + "cap_swul_5x_control"
         ),
         writes = listOf(
             NvWrite(
@@ -61,12 +65,27 @@ val ALL_FEATURES: List<FeatureDef> = listOf(
             NvWrite(
                 path = NR_BASE + "cap_swul_type_control",
                 bytes = "0 0 0"
+            ),
+            NvWrite(
+                path = NR_BASE + "cap_swul_control",
+                bytes = "0"
+            ),
+            NvWrite(
+                path = NR_BASE + "cap_swul_3x_control",
+                bytes = "0"
+            ),
+            NvWrite(
+                path = NR_BASE + "cap_swul_4x_control",
+                bytes = "0"
+            ),
+            NvWrite(
+                path = NR_BASE + "cap_swul_5x_control",
+                bytes = "0"
             )
         ),
         isDisabled = { byteArrays ->
-            if (byteArrays.size < 2) return@FeatureDef false
-            val (nrca, swulTypeControl) = byteArrays
-            nrca.all { it == 0 } && swulTypeControl.all { it == 0 }
+            if (byteArrays.size < 6) return@FeatureDef false
+            byteArrays.all { bytes -> bytes.all { it == 0 } }
         }
     ),
     FeatureDef(
