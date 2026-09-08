@@ -6,6 +6,15 @@ It wraps around the mtb binary located in `/vendor/bin` directory. If this binar
 
 [![tg_badge]](https://t.me/mtbtoolapp)
 
+# ⚠️⚠️ PROJECT ARCHIVED ⚠️⚠️
+
+A lot has happened in the background. New apps have evolved that superseed mtbtool Android app and also do NOT rely on the proprietary mtb binary (and can thus be used on other phones than just Xiaomi devices 🎉).
+
+Check out the following apps:
+
+- **Qcom Band Menu** (allows instantly applied band and cell-locking): [https://github.com/Fronsipswu/qcom-band-menu](https://github.com/Fronsipswu/qcom-band-menu)
+- **Qcom EFS Browser** (allows to browse EFS of your device): [https://github.com/catxeon/qcom-efs-browser/](https://github.com/catxeon/qcom-efs-browser/)
+
 ## Screenshots
 
 <p align="center">
